@@ -1,0 +1,9 @@
+{
+  "provider": "ollama",
+  "model": "qwen3:1.7b",
+  "base_url": "http://localhost:11434",
+  "temperature": 0.3,
+  "timeout_seconds": 60,
+  "max_retries": 1,
+  "max_plan_steps": 8
+}
