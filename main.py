@@ -10,10 +10,11 @@ from Isabella.Intelligence.models import BrainResponse, Intent, SkillRequest
 OUTPUT_LOCK = threading.Lock()
 
 
-def display_response(brain: Brain, response: BrainResponse, allow_confirmation: bool) -> None:
+def display_response(app: IsabellaApp, brain: Brain, response: BrainResponse, allow_confirmation: bool) -> None:
     with OUTPUT_LOCK:
         if response.response_type == Intent.CONVERSATION:
             print(f"\nISABELLA:\n{response.message}")
+            app.speak(response.message)
             return
         print(f"\n[ROUTER] {response.response_type.value}")
         for result in response.skill_results:
@@ -33,9 +34,12 @@ def display_response(brain: Brain, response: BrainResponse, allow_confirmation: 
                 confirmed = brain.confirm(request)
                 print(f"[STATUS] {confirmed.status}")
                 print(f"\nISABELLA:\n{confirmed.message}")
+                app.speak(confirmed.message)
             else:
                 print("[STATUS] cancelled")
                 print("\nISABELLA:\nAção cancelada.")
+                app.speak("Ação cancelada.")
+        app.speak(response.message)
 
 
 def main() -> None:
@@ -45,11 +49,13 @@ def main() -> None:
         brain = Brain.from_config()
 
         def handle_voice_command(command: str) -> None:
-            display_response(brain, brain.process(command), allow_confirmation=False)
+            display_response(app, brain, brain.process(command), allow_confirmation=False)
 
         voice_started = app.start_voice(handle_voice_command)
+        tts_started = app.start_tts()
         voice_status = "ativa" if voice_started else "indisponível/desativada"
-        print(f"Entrada por voz: {voice_status}. Digite um comando ou 'sair'.")
+        tts_status = "ativa" if tts_started else "indisponível/desativada"
+        print(f"Entrada por voz: {voice_status}. Saída por voz: {tts_status}. Digite um comando ou 'sair'.")
         while True:
             try:
                 user_text = input("\nVocê:\n").strip()
@@ -60,7 +66,7 @@ def main() -> None:
             if not user_text:
                 continue
 
-            display_response(brain, brain.process(user_text), allow_confirmation=True)
+            display_response(app, brain, brain.process(user_text), allow_confirmation=True)
     except KeyboardInterrupt:
         pass
     finally:

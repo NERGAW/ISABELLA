@@ -63,7 +63,11 @@ class AudioRecorder:
             "sample_rate": self.sample_rate,
         }
 
-    def capture_utterance(self, stop_event: threading.Event) -> np.ndarray:
+    def capture_utterance(
+        self,
+        stop_event: threading.Event,
+        pause_event: threading.Event | None = None,
+    ) -> np.ndarray:
         block_duration = 0.1
         blocksize = int(self.sample_rate * block_duration)
         blocks: Queue[np.ndarray] = Queue(maxsize=32)
@@ -91,7 +95,11 @@ class AudioRecorder:
                 callback=callback,
             ):
                 LOGGER.info("device=%s", self.device_info()["name"])
-                while not stop_event.is_set() and monotonic() - started < self.timeout:
+                while (
+                    not stop_event.is_set()
+                    and not (pause_event and pause_event.is_set())
+                    and monotonic() - started < self.timeout
+                ):
                     try:
                         block = blocks.get(timeout=0.2)
                     except Empty:

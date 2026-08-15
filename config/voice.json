@@ -15,5 +15,20 @@
   "command_timeout_seconds": 12,
   "speech_threshold": 0.015,
   "silence_duration_seconds": 1.2,
-  "debug_transcription": true
+  "debug_transcription": true,
+  "tts": {
+    "enabled": true,
+    "primary_provider": "edge",
+    "fallback_provider": "sapi",
+    "language": "pt-BR",
+    "voice": "pt-BR-FranciscaNeural",
+    "fallback_voice": "Microsoft Maria Desktop - Portuguese(Brazil)",
+    "rate": 1.0,
+    "pitch": 0.0,
+    "volume": 1.0,
+    "streaming": false,
+    "cache_enabled": true,
+    "cache_max_entries": 32,
+    "queue_max_size": 10
+  }
 }

@@ -73,7 +73,7 @@ class FakeRecorder:
             raise self.error
         return {"name": "Fake microphone", "sample_rate": 16000}
 
-    def capture_utterance(self, stop_event):
+    def capture_utterance(self, stop_event, pause_event=None):
         if self.audio:
             return self.audio.popleft()
         stop_event.wait(0.01)

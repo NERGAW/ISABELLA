@@ -23,6 +23,7 @@ class ListenerState(str, Enum):
     LISTENING = "LISTENING"
     TRANSCRIBING = "TRANSCRIBING"
     PROCESSING = "PROCESSING"
+    SPEAKING = "SPEAKING"
     ERROR = "ERROR"
 
 
@@ -42,6 +43,7 @@ class VoiceListener:
         self.wakeword = WakeWordDetector(config["wake_word_aliases"])
         self.state = ListenerState.STOPPED
         self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
         self._audio_queue: Queue[tuple[np.ndarray, float]] = Queue(maxsize=queue_size)
         self._capture_thread: threading.Thread | None = None
         self._processing_thread: threading.Thread | None = None
@@ -81,9 +83,12 @@ class VoiceListener:
             info = self.recorder.device_info()
             LOGGER.info("device=%s sample_rate=%s", info["name"], info["sample_rate"])
             while not self._stop_event.is_set():
+                if self._pause_event.is_set():
+                    self._stop_event.wait(0.1)
+                    continue
                 self.state = ListenerState.LISTENING
-                audio = self.recorder.capture_utterance(self._stop_event)
-                if audio.size:
+                audio = self.recorder.capture_utterance(self._stop_event, self._pause_event)
+                if audio.size and not self._pause_event.is_set():
                     self.enqueue_audio(audio)
         except AudioDeviceError:
             self.state = ListenerState.ERROR
@@ -149,6 +154,15 @@ class VoiceListener:
         if self.state != ListenerState.ERROR:
             self.state = ListenerState.STOPPED
         return not any(thread and thread.is_alive() for thread in (self._capture_thread, self._processing_thread))
+
+    def pause_for_speech(self) -> None:
+        self._pause_event.set()
+        self.state = ListenerState.SPEAKING
+
+    def resume_after_speech(self) -> None:
+        self._pause_event.clear()
+        if not self._stop_event.is_set() and self.state != ListenerState.ERROR:
+            self.state = ListenerState.LISTENING
 
     @property
     def average_total_latency_ms(self) -> float:

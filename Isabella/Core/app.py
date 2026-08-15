@@ -28,6 +28,7 @@ class IsabellaApp:
         self.status = IsabellaStatus.OFFLINE
         self.state_history = [self.status]
         self.voice_listener: Any | None = None
+        self.tts_manager: Any | None = None
 
     def _set_status(self, status: IsabellaStatus) -> None:
         self.status = status
@@ -68,6 +69,40 @@ class IsabellaApp:
             self.voice_listener = None
             return False
 
+    def start_tts(self, config_path: Path | None = None) -> bool:
+        """Start optional voice output with listener echo protection."""
+        try:
+            from Isabella.Voice.models import load_voice_config
+            from Isabella.Voice.tts import TTSManager
+
+            tts_config = load_voice_config(config_path).get("tts", {})
+            if not tts_config.get("enabled", False):
+                if self.logger:
+                    self.logger.info("TTS disabled by configuration.")
+                return False
+
+            def speaking_changed(speaking: bool) -> None:
+                if not self.voice_listener:
+                    return
+                if speaking:
+                    self.voice_listener.pause_for_speech()
+                else:
+                    self.voice_listener.resume_after_speech()
+
+            self.tts_manager = TTSManager(tts_config, on_speaking_change=speaking_changed)
+            initialized = self.tts_manager.initialize()
+            if self.logger:
+                self.logger.info("TTS started=%s", initialized)
+            return initialized
+        except Exception:
+            if self.logger:
+                self.logger.exception("TTS unavailable; text mode remains online.")
+            self.tts_manager = None
+            return False
+
+    def speak(self, text: str) -> bool:
+        return bool(self.tts_manager and self.tts_manager.speak(text))
+
     def shutdown(self) -> None:
         """Shut down the application cleanly."""
         if self.status == IsabellaStatus.OFFLINE:
@@ -76,6 +111,10 @@ class IsabellaApp:
         self._set_status(IsabellaStatus.STOPPING)
         if self.logger:
             self.logger.info("ISABELLA stopping.")
+        if self.tts_manager:
+            stopped = self.tts_manager.shutdown()
+            if self.logger:
+                self.logger.info("TTS stopped=%s", stopped)
         if self.voice_listener:
             stopped = self.voice_listener.stop()
             if self.logger:
