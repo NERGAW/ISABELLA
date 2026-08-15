@@ -9,17 +9,36 @@ from typing import Any
 
 from .base import RiskLevel, SkillDefinition, SkillResult
 from Isabella.Events import EventType
+from Isabella.Security import PolicyDecision, SecurityPolicyEngine
 
 
 LOGGER = logging.getLogger("SKILL")
+SECRET_KEYS = ("password", "senha", "token", "secret", "key", "credential", "credencial")
+
+
+def _safe_event_value(value):
+    if isinstance(value, dict):
+        return {
+            key: _safe_event_value(item) for key, item in value.items()
+            if not any(secret in str(key).lower() for secret in SECRET_KEYS)
+        }
+    if isinstance(value, (list, tuple)):
+        return [_safe_event_value(item) for item in value]
+    if isinstance(value, str) and any(
+        term in value.casefold() for term in
+        ("password", "senha", "token", "api key", "private key", "secret", "segredo", "credencial")
+    ):
+        return "[REDACTED]"
+    return value
 
 
 class SkillRegistry:
-    def __init__(self, event_bus=None) -> None:
+    def __init__(self, event_bus=None, policy_engine=None) -> None:
         self._skills: dict[str, SkillDefinition] = {}
         self.validation_latencies_ms: deque[float] = deque(maxlen=200)
         self.execution_latencies_ms: deque[float] = deque(maxlen=200)
         self.event_bus = event_bus
+        self.policy_engine = policy_engine or SecurityPolicyEngine.from_config(event_bus=event_bus)
 
     def register(self, definition: SkillDefinition) -> None:
         if definition.id in self._skills:
@@ -63,7 +82,11 @@ class SkillRegistry:
             latency = (perf_counter() - started) * 1000
             self.validation_latencies_ms.append(latency)
 
-    def execute(self, skill_id: str, arguments: dict[str, Any], confirmed: bool = False) -> SkillResult:
+    def execute(
+        self, skill_id: str, arguments: dict[str, Any], confirmed: bool = False,
+        *, source_request_id: str = "direct", confirmation_id: str | None = None,
+        confirmation_source: str = "untrusted",
+    ) -> SkillResult:
         started = perf_counter()
         if self.event_bus:
             self.event_bus.emit(EventType.SKILL_STARTED, "skills", {"skill_id": skill_id, "status": "started"})
@@ -72,14 +95,35 @@ class SkillRegistry:
             self._emit_result(validation_error, started, arguments)
             return validation_error
         definition = self._skills[skill_id]
-        if definition.risk_level == RiskLevel.CRITICAL and not confirmed:
+        if confirmation_id:
+            policy = self.policy_engine.confirm(
+                confirmation_id, skill_id, arguments, source=confirmation_source,
+            )
+        else:
+            # `confirmed` is deliberately ignored: a boolean can be forged by an LLM or caller.
+            policy = self.policy_engine.evaluate(
+                skill_id, arguments, definition.risk_level, source_request_id,
+            )
+        if policy.decision is PolicyDecision.CONFIRM:
             result = SkillResult(
                 False,
                 skill_id,
                 "Confirmação explícita necessária.",
-                data={"arguments": arguments},
+                data={
+                    "arguments": dict(arguments),
+                    "confirmation_id": policy.confirmation.id,
+                    "expires_at": policy.confirmation.expires_at.isoformat(),
+                },
                 error_code="CONFIRMATION_REQUIRED",
                 status="confirmation_required",
+            )
+            self._emit_result(result, started, arguments)
+            return result
+        if policy.decision is PolicyDecision.DENY:
+            error_code = "CONFIRMATION_EXPIRED" if policy.reason == "confirmation_expired" else "SECURITY_DENIED"
+            result = SkillResult(
+                False, skill_id, "A política de segurança negou a ação.",
+                error_code=error_code, status="denied",
             )
             self._emit_result(result, started, arguments)
             return result
@@ -109,11 +153,8 @@ class SkillRegistry:
                 "skill_id": result.skill_id, "status": result.status,
                 "risk_level": self._skills[result.skill_id].risk_level.value if result.skill_id in self._skills else "UNKNOWN",
                 "success": result.success, "message": result.message,
-                "data": result.data,
-                "arguments": {
-                    key: value for key, value in arguments.items()
-                    if not any(secret in key.lower() for secret in ("password", "senha", "token", "secret", "key"))
-                },
+                "data": _safe_event_value(result.data),
+                "arguments": _safe_event_value(arguments),
                 "duration_ms": (perf_counter() - started) * 1000,
             },
         )

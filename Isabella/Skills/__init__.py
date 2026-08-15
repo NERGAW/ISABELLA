@@ -8,8 +8,8 @@ from .system import create_system_skills
 from .vision import create_vision_skills
 
 
-def build_default_registry(vision_manager=None, event_bus=None) -> SkillRegistry:
-    registry = SkillRegistry(event_bus=event_bus)
+def build_default_registry(vision_manager=None, event_bus=None, policy_engine=None) -> SkillRegistry:
+    registry = SkillRegistry(event_bus=event_bus, policy_engine=policy_engine)
     definitions = (
         create_application_skills()
         + create_browser_skills()

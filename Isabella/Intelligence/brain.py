@@ -22,6 +22,7 @@ from Isabella.Context import ContextManager
 from Isabella.Skills.base import RiskLevel
 from Isabella.Vision import VisionManager
 from Isabella.Events import EventPriority, EventType, reset_correlation_id, set_correlation_id
+from Isabella.Security import ConfirmationRequest, SecurityPolicyEngine
 
 
 LOGGER = logging.getLogger("BRAIN")
@@ -29,10 +30,11 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.event_bus = event_bus
+        self.security = security or getattr(registry, "policy_engine", None)
         self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory
@@ -51,15 +53,17 @@ class Brain:
         memory = MemoryManager.from_config(event_bus=event_bus)
         context = ContextManager.from_config(memory=memory, event_bus=event_bus)
         vision = VisionManager.from_config(context=context, event_bus=event_bus)
+        security = SecurityPolicyEngine.from_config(event_bus=event_bus)
         brain = cls(
             OllamaProvider(config),
             router=router,
             planner=Planner(max_steps=int(config["max_plan_steps"]), router=router, event_bus=event_bus),
-            registry=build_default_registry(vision, event_bus=event_bus),
+            registry=build_default_registry(vision, event_bus=event_bus, policy_engine=security),
             memory=memory,
             context=context,
             vision=vision,
             event_bus=event_bus,
+            security=security,
         )
         brain.startup_metrics = {
             "intelligence_config_ms": config_ms,
@@ -158,7 +162,7 @@ class Brain:
             if self.registry:
                 stage_started = perf_counter()
                 self._record_context_action(request)
-                skill_result = self.registry.execute(request.skill, request.arguments)
+                skill_result = self._execute_skill(request.skill, request.arguments, request_id)
                 self._record_context_result(skill_result)
                 skill_ms = (perf_counter() - stage_started) * 1000
                 result = BrainResponse(intent, skill_result.message, skill_request=request, skill_results=(skill_result,))
@@ -169,7 +173,7 @@ class Brain:
             plan = self.planner.plan(text)
             planner_ms = (perf_counter() - stage_started) * 1000
             stage_started = perf_counter()
-            skill_results = self._execute_plan(plan) if self.registry and not plan.error else ()
+            skill_results = self._execute_plan(plan, request_id) if self.registry and not plan.error else ()
             skill_ms = (perf_counter() - stage_started) * 1000
             message = skill_results[-1].message if skill_results else (plan.error or "Plano criado, mas não executado.")
             result = BrainResponse(intent, message, plan=plan, skill_results=skill_results)
@@ -229,7 +233,7 @@ class Brain:
         if not self.registry or not self.registry.exists(request.skill):
             return None, BrainResponse(Intent.CONVERSATION, "Vision está indisponível no momento.")
         self._record_context_action(request)
-        result = self.registry.execute(request.skill, request.arguments)
+        result = self._execute_skill(request.skill, request.arguments, "vision")
         self._record_context_result(result)
         if not result.success:
             return None, BrainResponse(Intent.CONVERSATION, result.message)
@@ -248,6 +252,16 @@ class Brain:
     def _record_context_result(self, result: SkillResult) -> None:
         if self.context:
             self.context.record_result(result.success, result.message, result.data, result.status)
+
+    def _execute_skill(self, skill_id: str, arguments: dict, source_request_id: str) -> SkillResult:
+        try:
+            return self.registry.execute(
+                skill_id, arguments, source_request_id=source_request_id,
+            )
+        except TypeError as exc:
+            if "source_request_id" not in str(exc):
+                raise
+            return self.registry.execute(skill_id, arguments)
 
     def _finalize_conversation(self, user_text: str, assistant_text: str) -> None:
         self._remember_exchange(user_text, assistant_text)
@@ -299,22 +313,36 @@ class Brain:
             self.memory.add_working_message("user", user_text)
             self.memory.add_working_message("assistant", assistant_text)
 
-    def confirm(self, request: SkillRequest) -> SkillResult:
+    def pending_confirmation(self, confirmation_id: str) -> ConfirmationRequest | None:
+        return self.security.get_pending(confirmation_id) if self.security else None
+
+    def cancel_confirmation(self, confirmation_id: str) -> bool:
+        return self.security.cancel(confirmation_id) if self.security else False
+
+    def confirm(self, request: ConfirmationRequest, source: str = "hud") -> SkillResult:
         if self.registry is None:
             raise RuntimeError("Skill registry is not configured")
-        self._record_context_action(request)
-        result = self.registry.execute(request.skill, request.arguments, confirmed=True)
+        skill_request = SkillRequest(request.skill_id, request.arguments)
+        self._record_context_action(skill_request)
+        result = self.registry.execute(
+            request.skill_id, request.arguments,
+            source_request_id=request.source_request_id,
+            confirmation_id=request.id,
+            confirmation_source=source,
+        )
         self._record_context_result(result)
         return result
 
-    def _execute_plan(self, plan: Plan) -> tuple[SkillResult, ...]:
+    def _execute_plan(self, plan: Plan, source_request_id: str = "direct") -> tuple[SkillResult, ...]:
         results: list[SkillResult] = []
         succeeded: set[int] = set()
         for step in plan.steps:
             if any(dependency not in succeeded for dependency in step.depends_on):
                 results.append(SkillResult(False, step.skill, "Dependência anterior falhou.", error_code="DEPENDENCY_FAILED", status="skipped"))
                 break
-            result = self.registry.execute(step.skill, step.arguments)
+            result = self._execute_skill(
+                step.skill, step.arguments, f"{source_request_id}:step-{step.id}",
+            )
             if self.context:
                 request = SkillRequest(step.skill, step.arguments)
                 self._record_context_action(request)

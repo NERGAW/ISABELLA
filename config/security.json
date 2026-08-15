@@ -1,0 +1,10 @@
+{
+  "confirmation_timeout_seconds": 30,
+  "risk_policies": {
+    "SAFE": "ALLOW",
+    "CAUTION": "ALLOW",
+    "CRITICAL": "CONFIRM"
+  },
+  "critical_confirmation_required": true,
+  "logging_level": "INFO"
+}

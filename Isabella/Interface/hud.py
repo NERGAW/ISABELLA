@@ -196,10 +196,22 @@ class IsabellaHUD(QMainWindow):
         self.current_project.setText(f"Projeto: {snapshot.current_project or '—'}")
 
     def confirm_action(self, request) -> None:
-        answer = QMessageBox.question(self, "Confirmar ação crítica", f"Permitir a ação '{request.skill}'?",
-                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                      QMessageBox.StandardButton.No)
-        if answer == QMessageBox.StandardButton.Yes:
+        labels = {
+            "system.shutdown": "Desligar computador?",
+            "system.restart": "Reiniciar computador?",
+            "system.sleep": "Suspender computador?",
+            "system.shutdown_timer": "Agendar o desligamento do computador?",
+        }
+        description = labels.get(request.skill_id, f"Executar '{request.skill_id}'?")
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("AÇÃO CRÍTICA")
+        dialog.setText(description)
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        confirm_button = dialog.addButton("Confirmar", QMessageBox.ButtonRole.AcceptRole)
+        cancel_button = dialog.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(cancel_button)
+        dialog.exec()
+        if dialog.clickedButton() is confirm_button:
             self.controller.confirm_critical(request)
         else:
             self.controller.cancel_critical()

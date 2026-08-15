@@ -32,3 +32,8 @@ class EventType(str, Enum):
     VISION_CAPTURE_COMPLETED = "vision.capture_completed"
     VISION_CAPTURE_FAILED = "vision.capture_failed"
     UI_MESSAGE = "ui.message"
+    SECURITY_ALLOWED = "security.allowed"
+    SECURITY_CONFIRMATION_REQUIRED = "security.confirmation_required"
+    SECURITY_DENIED = "security.denied"
+    SECURITY_CONFIRMED = "security.confirmed"
+    SECURITY_EXPIRED = "security.expired"

@@ -76,7 +76,14 @@ def test_application_aliases(tmp_path):
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [("youtube", "https://youtube.com"), ("https://github.com/openai", "https://github.com/openai"), ("file:///etc/passwd", None), ("javascript:alert(1)", None)],
+    [
+        ("youtube", "https://youtube.com"),
+        ("https://github.com/openai", "https://github.com/openai"),
+        ("file:///etc/passwd", None),
+        ("javascript:alert(1)", None),
+        ("data:text/html,attack", None),
+        ("ftp://example.com/file", None),
+    ],
 )
 def test_browser_url_validation(value, expected):
     assert normalize_url(value) == expected

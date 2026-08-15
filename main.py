@@ -5,7 +5,7 @@ import threading
 
 from Isabella.Core.app import IsabellaApp
 from Isabella.Intelligence.brain import Brain
-from Isabella.Intelligence.models import BrainResponse, Intent, SkillRequest
+from Isabella.Intelligence.models import BrainResponse, Intent
 
 
 OUTPUT_LOCK = threading.Lock()
@@ -29,14 +29,17 @@ def display_response(app: IsabellaApp, brain: Brain, response: BrainResponse, al
                 continue
             confirmation = input("Confirmar esta ação? (sim/não) ").strip().lower()
             if confirmation == "sim":
-                request = response.skill_request or SkillRequest(
-                    result.skill_id, result.data["arguments"]
-                )
-                confirmed = brain.confirm(request)
+                request = brain.pending_confirmation(result.data["confirmation_id"])
+                if request is None:
+                    print("[STATUS] expired")
+                    print("\nISABELLA:\nA confirmação expirou.")
+                    continue
+                confirmed = brain.confirm(request, source="cli")
                 print(f"[STATUS] {confirmed.status}")
                 print(f"\nISABELLA:\n{confirmed.message}")
                 app.speak(confirmed.message)
             else:
+                brain.cancel_confirmation(result.data["confirmation_id"])
                 print("[STATUS] cancelled")
                 print("\nISABELLA:\nAção cancelada.")
                 app.speak("Ação cancelada.")

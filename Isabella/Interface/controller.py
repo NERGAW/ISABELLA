@@ -3,7 +3,6 @@
 import logging
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
-from Isabella.Intelligence.models import SkillRequest
 from Isabella.Events import EventType
 from .models import MessageRole, MessageType, SUBSYSTEMS, UIMessage, UIState
 from .workers import BrainWorker, FunctionWorker
@@ -38,6 +37,7 @@ class InterfaceController(QObject):
         self._workers: set[object] = set()
         self._request_sequence = 0
         self._active_correlation_id: str | None = None
+        self._pending_confirmation = None
         self.event_bus = getattr(app, "event_bus", None)
         self.voice_command_received.connect(self.submit_voice_text)
         self.tts_speaking_received.connect(self.set_tts_speaking)
@@ -103,6 +103,16 @@ class InterfaceController(QObject):
         cleaned = text.strip()
         if not cleaned:
             return
+        normalized = cleaned.casefold().strip(" .!?")
+        if from_voice and self._pending_confirmation:
+            if normalized in {"sim", "confirmo", "pode confirmar", "pode executar"}:
+                request = self._pending_confirmation
+                self._pending_confirmation = None
+                self.confirm_critical(request, source="voice")
+                return
+            if normalized in {"não", "nao", "cancelar", "cancele"}:
+                self.cancel_critical()
+                return
         if self.busy:
             self.add_message(MessageRole.SYSTEM, "Aguarde a solicitação atual terminar.", MessageType.STATUS)
             return
@@ -135,8 +145,11 @@ class InterfaceController(QObject):
         LOGGER.info("response received latency_ms=%.2f", latency_ms)
         pending = next((result for result in response.skill_results if result.status == "confirmation_required"), None)
         if pending:
-            request = response.skill_request or SkillRequest(pending.skill_id, pending.data["arguments"])
-            self.confirmation_required.emit(request)
+            request = self.brain.pending_confirmation(pending.data["confirmation_id"])
+            if request:
+                self._pending_confirmation = request
+                self._set_busy(False)
+                self.confirmation_required.emit(request)
         else:
             try:
                 self.app.speak(response.message, correlation_id=self._active_correlation_id)
@@ -147,13 +160,13 @@ class InterfaceController(QObject):
         if context:
             self.context_changed.emit(context.get_snapshot())
 
-    @Slot(object)
-    def confirm_critical(self, request: SkillRequest) -> None:
+    def confirm_critical(self, request, source: str = "hud") -> None:
         if self.busy:
             return
         self._set_busy(True)
         self.set_state(UIState.EXECUTING)
-        worker = FunctionWorker(self.brain.confirm, request)
+        self._pending_confirmation = None
+        worker = FunctionWorker(self.brain.confirm, request, source)
         worker.signals.result.connect(self._handle_confirmation_result)
         worker.signals.error.connect(self._handle_error)
         worker.signals.finished.connect(lambda: self._set_busy(False))
@@ -167,6 +180,9 @@ class InterfaceController(QObject):
         self.set_state(UIState.IDLE)
 
     def cancel_critical(self) -> None:
+        if self._pending_confirmation:
+            self.brain.cancel_confirmation(self._pending_confirmation.id)
+            self._pending_confirmation = None
         self.add_message(MessageRole.SYSTEM, "Ação crítica cancelada.", MessageType.STATUS)
         self.app.speak("Ação cancelada.")
         self.set_state(UIState.IDLE)

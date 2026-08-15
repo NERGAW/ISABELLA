@@ -38,7 +38,7 @@ um assinante herdam automaticamente a correlação que ele está processando.
 
 Os nomes oficiais estão em `Isabella.Events.EventType`: `system.*`, `voice.*`,
 `brain.*`, `skill.*`, `planner.*`, `tts.*`, `memory.*`, `context.updated`,
-`vision.*` e `ui.message`. Novos nomes devem preservar o formato
+`vision.*`, `ui.message` e `security.*`. Novos nomes devem preservar o formato
 `categoria.acontecimento` e ser adicionados ao enum antes do uso.
 
 ## Configuração e diagnóstico
