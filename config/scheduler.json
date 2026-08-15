@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "database_path": "data/scheduler.db",
+  "timezone": "America/Sao_Paulo",
+  "missed_task_policy": "SKIP",
+  "max_tasks": 1000,
+  "max_sleep_seconds": 60
+}

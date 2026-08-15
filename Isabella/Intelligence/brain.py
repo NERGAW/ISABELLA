@@ -10,7 +10,7 @@ from .llm import OllamaProvider, ProviderUnavailableError, load_intelligence_con
 from .models import BrainResponse, Intent, Plan, SkillRequest
 from .planner import Planner
 from .router import Router
-from Isabella.Skills import SkillRegistry, build_default_registry, create_automation_skills, create_diagnostics_skill
+from Isabella.Skills import SkillRegistry, build_default_registry, create_automation_skills, create_diagnostics_skill, create_scheduler_skills
 from Isabella.Skills.base import SkillResult
 from Isabella.Memory import MemoryManager, MemoryType
 from Isabella.Memory.manager import MemoryError, SecretMemoryError
@@ -31,7 +31,7 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None, scheduler=None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.event_bus = event_bus
@@ -41,6 +41,7 @@ class Brain:
         self.research = research
         self.skillforge = skillforge
         self.automations = automations
+        self.scheduler = scheduler
         self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory
@@ -81,6 +82,10 @@ class Brain:
         from Isabella.Automations import AutomationManager
         brain.automations = AutomationManager.from_config(registry=registry, event_bus=event_bus)
         for definition in create_automation_skills(brain.automations):
+            registry.register(definition)
+        from Isabella.Scheduler import SchedulerManager
+        brain.scheduler = SchedulerManager.from_config(registry=registry, event_bus=event_bus)
+        for definition in create_scheduler_skills(brain.scheduler):
             registry.register(definition)
         diagnostics = DiagnosticsManager.from_config(brain=brain, event_bus=event_bus)
         brain.diagnostics = diagnostics
@@ -134,6 +139,10 @@ class Brain:
         if self.context:
             self.context.refresh_active_window()
             self.context.set("last_user_command", text)
+        schedule_response = self._handle_schedule_command(text, request_id)
+        if schedule_response is not None:
+            self._finalize_conversation(text, schedule_response.message)
+            return schedule_response
         memory_response = self._handle_memory_command(text)
         if memory_response is not None:
             self._finalize_conversation(text, memory_response.message)
@@ -218,6 +227,53 @@ class Brain:
         if self.context:
             self.context.record_conversation(text, result.message)
         return result
+
+    def _handle_schedule_command(self, text: str, request_id: str) -> BrainResponse | None:
+        if not self.scheduler:
+            return None
+        normalized = normalize(text)
+        temporal = any(
+            re.search(pattern, normalized) for pattern in (
+                r"\bdaqui a \d+ (?:minuto|hora)s?\b", r"\bamanha\b",
+                r"\btod(?:o|os) (?:os )?dias?\b", r"\bas \d{1,2}(?::\d{2})?(?: horas?)?\b",
+            )
+        )
+        if not temporal:
+            return None
+        try:
+            schedule = self.scheduler.parse_natural_schedule(text)
+        except ValueError as exc:
+            return BrainResponse(Intent.CONVERSATION, str(exc))
+
+        skill = None
+        arguments: dict[str, object] = {}
+        name = "Tarefa agendada"
+        if "lembre" in normalized:
+            reminder = re.sub(r"^(?:isabella[,.]?\s*)?(?:me\s+)?lembre(?:-me)?(?:\s+de)?\s*", "", text.strip(), flags=re.IGNORECASE)
+            reminder = re.split(r"\b(?:daqui\s+a|amanh[ãa]|(?:à|a)s?\s+\d{1,2}|todo(?:s)?\s+(?:os\s+)?dias?)\b", reminder, maxsplit=1, flags=re.IGNORECASE)[0].strip(" ,.")
+            if not reminder:
+                return BrainResponse(Intent.CONVERSATION, "O que você quer que eu lembre?")
+            skill, arguments, name = "scheduler.reminder", {"text": reminder}, f"Lembrete: {reminder}"
+        elif "deslig" in normalized:
+            skill, name = "system.shutdown", "Desligar o computador"
+        elif "reinici" in normalized:
+            skill, name = "system.restart", "Reiniciar o computador"
+        elif any(item in normalized for item in ("abra", "abre", "abrir", "inicie")):
+            request = self.router.skill_request(text)
+            skill, arguments, name = request.skill, request.arguments, f"Executar {request.skill}"
+        elif "ambiente de desenvolvimento" in normalized and self.registry.exists("custom.prepare_work"):
+            skill, name = "custom.prepare_work", "Ambiente de desenvolvimento"
+        if not skill:
+            return BrainResponse(Intent.CONVERSATION, "Entendi o horário, mas preciso que você especifique uma ação autorizada.")
+        specification = {
+            **schedule, "name": name, "skill": skill, "arguments": arguments,
+            "enabled": True,
+        }
+        if skill == "scheduler.reminder":
+            specification["reminder_text"] = arguments["text"]
+        request = SkillRequest("scheduler.create", {"specification": specification})
+        result = self._execute_skill(request.skill, request.arguments, request_id)
+        return BrainResponse(Intent.SINGLE_SKILL, result.message, skill_request=request, skill_results=(result,))
 
     def _handle_context_request(self, text: str) -> tuple[SkillRequest | None, BrainResponse | None]:
         if not self.context:
@@ -393,6 +449,8 @@ class Brain:
         return sum(self.latencies_ms) / len(self.latencies_ms) if self.latencies_ms else 0.0
 
     def shutdown(self) -> None:
+        if self.scheduler:
+            self.scheduler.shutdown()
         if self.automations:
             self.automations.shutdown()
         if self.skillforge:
