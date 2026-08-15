@@ -32,6 +32,7 @@ class BrainWorker(QRunnable):
             phase = {
                 Intent.CONVERSATION: "THINKING",
                 Intent.RESEARCH: "SEARCHING",
+                Intent.VISION: "VISION ANALYZING",
                 Intent.SINGLE_SKILL: "EXECUTING",
                 Intent.MULTI_STEP: "PLANNING",
             }[intent]

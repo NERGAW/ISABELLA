@@ -70,4 +70,7 @@ class ContextSnapshot:
     last_vision_source: str | None = None
     last_capture_timestamp: str | None = None
     last_capture_window: str | None = None
+    last_screen_summary: str | None = None
+    last_detected_error: str | None = None
+    last_visible_application: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)

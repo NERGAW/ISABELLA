@@ -40,6 +40,8 @@ LLM podem falhar isoladamente; Core, Skills locais, HUD/CLI e shutdown continuam
 - TTS Francisca Neural com fallback SAPI, cache e fila limitada.
 - HUD PySide6 e CLI compartilhando o mesmo Runtime.
 - Vision sob demanda para tela, janela e câmera sem captura contínua.
+- Compreensão multimodal local sob demanda com `qwen3-vl:2b`, imagem reduzida e
+  contexto apenas textual/estruturado.
 - Diagnostics para 15 subsistemas, métricas e histórico limitado.
 - MCP modular com `stdio` e Streamable HTTP oficiais, desligado de conexões por
   padrão e sempre subordinado ao Security Policy Engine local.

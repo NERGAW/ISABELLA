@@ -8,6 +8,7 @@ from typing import Any
 class Intent(str, Enum):
     CONVERSATION = "conversation"
     RESEARCH = "research"
+    VISION = "vision"
     SINGLE_SKILL = "single_skill"
     MULTI_STEP = "multi_step"
 

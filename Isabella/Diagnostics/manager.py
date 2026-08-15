@@ -149,6 +149,8 @@ class DiagnosticsManager:
                 status = HealthStatus.ONLINE if capabilities.get("screen") else HealthStatus.ERROR
                 if capabilities.get("camera") is False and status is HealthStatus.ONLINE:
                     status = HealthStatus.DEGRADED
+                if capabilities.get("multimodal_enabled") and capabilities.get("model_available") is False and status is HealthStatus.ONLINE:
+                    status = HealthStatus.DEGRADED
                 return status, capabilities
             if subsystem is Subsystem.EVENT_BUS:
                 bus = self.event_bus or getattr(app, "event_bus", None)

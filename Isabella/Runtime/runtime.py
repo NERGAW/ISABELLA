@@ -277,7 +277,10 @@ class ApplicationRuntime(IsabellaRuntime):
         if not vision:
             return ServiceState.ERROR
         capabilities = vision.health_check(check_camera=False)
-        return ServiceState.ONLINE if capabilities.get("screen") else ServiceState.DEGRADED
+        ready = capabilities.get("screen") and (
+            not capabilities.get("multimodal_enabled") or capabilities.get("model_available", True)
+        )
+        return ServiceState.ONLINE if ready else ServiceState.DEGRADED
 
     def _start_mcp(self):
         return bool(self.brain and self.brain.mcp and self.brain.mcp.start())

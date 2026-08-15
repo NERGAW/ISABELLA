@@ -19,6 +19,11 @@ RESEARCH_PATTERNS = (
     r"\bhoje\b", r"\batual(?:mente)?\b", r"\bultim[oa]s?\b", r"\bnoticias?\b",
     r"\bversao atual\b", r"\bversao (?:mais )?recente\b", r"\bcom fontes?\b",
 )
+VISION_PATTERNS = (
+    r"\bolhe (?:a |para a )?minha tela\b", r"\bo que (?:esta|tem) (?:aparecendo )?(?:na(?: minha)?|em minha) tela\b",
+    r"\bque erro (?:e|eh) esse\b", r"\bo que significa (?:esse|essa|esta) (?:erro|mensagem)\b",
+    r"\bresuma o que esta aberto\b", r"\bdescreva (?:a |minha )?tela\b",
+)
 
 
 class Router:
@@ -28,6 +33,12 @@ class Router:
     def route(self, text: str) -> Intent:
         started = perf_counter()
         normalized = self.normalize_text(text)
+        if any(re.search(pattern, normalized) for pattern in VISION_PATTERNS):
+            intent = Intent.VISION
+            latency = (perf_counter() - started) * 1000
+            self.latencies_ms.append(latency)
+            LOGGER.info("input=%r intent=%s latency_ms=%.3f", text, intent.value, latency)
+            return intent
         if any(re.search(pattern, normalized) for pattern in RESEARCH_PATTERNS):
             intent = Intent.RESEARCH
             latency = (perf_counter() - started) * 1000

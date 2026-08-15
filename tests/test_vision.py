@@ -13,6 +13,8 @@ from Isabella.Skills.vision import create_vision_skills
 from Isabella.Vision.camera import CameraCapture
 from Isabella.Vision.manager import VisionManager, load_vision_config
 from Isabella.Vision.models import ImageCapture, VisionResult, VisionSource, now_iso
+from Isabella.Vision.models import ScreenAnalysis
+from Isabella.Vision.provider import OllamaVisionProvider, VisionProviderError
 from Isabella.Vision.screen import ScreenCapturer
 
 
@@ -25,7 +27,14 @@ VISION_CONFIG = {
     "max_image_width": 1920,
     "max_image_height": 1080,
     "temporary_images": True,
-    "multimodal_model": None,
+    "multimodal_enabled": True,
+    "vision_provider": "ollama",
+    "vision_model": "qwen3-vl:2b",
+    "max_image_size": 1280,
+    "compression_quality": 85,
+    "provider_local": True,
+    "allow_cloud_upload": False,
+    "analysis_context_ttl_seconds": 120,
 }
 
 CONTEXT_CONFIG = {
@@ -134,10 +143,36 @@ class FakeLLM:
         pass
 
 
-def manager(tmp_path, screen=None, camera=None, context=None):
+class FakeVisionProvider:
+    local = True
+
+    def __init__(self, analysis=None, unavailable=False):
+        self.analysis = analysis or ScreenAnalysis("Uma janela simples está visível.", confidence=0.9)
+        self.unavailable = unavailable
+        self.calls = 0
+        self.closed = False
+
+    def preprocess(self, capture):
+        return "base64-image", {"width": 800, "height": 600, "bytes": 100, "format": "JPEG"}
+
+    def analyze(self, image, question):
+        self.calls += 1
+        if self.unavailable:
+            raise VisionProviderError("offline")
+        return self.analysis
+
+    def health_check(self):
+        return {"reachable": not self.unavailable, "model_available": not self.unavailable, "model": "fake", "local": True}
+
+    def close(self):
+        self.closed = True
+
+
+def manager(tmp_path, screen=None, camera=None, context=None, provider=None):
     return VisionManager(
         VISION_CONFIG, screen=screen or FakeScreen(tmp_path),
         camera=camera or FakeCamera(tmp_path), context=context,
+        provider=provider or FakeVisionProvider(),
     )
 
 
@@ -157,6 +192,15 @@ def test_config_forbids_continuous_capture(tmp_path):
         load_vision_config(path)
 
 
+def test_config_requires_explicit_cloud_permission(tmp_path):
+    path = tmp_path / "vision.json"
+    import json
+
+    path.write_text(json.dumps(dict(VISION_CONFIG, provider_local=False, allow_cloud_upload=False)), encoding="utf-8")
+    with pytest.raises(Exception, match="explicit"):
+        load_vision_config(path)
+
+
 def test_screen_capturer_resizes_and_writes_png(tmp_path):
     capturer = ScreenCapturer(320, 200, grabber=lambda bbox=None: Image.new("RGB", (1280, 720)))
     capturer.monitor_bounds = lambda: [(0, 0, 1280, 720)]
@@ -164,6 +208,39 @@ def test_screen_capturer_resizes_and_writes_png(tmp_path):
     assert capture.path.is_file()
     assert capture.width <= 320 and capture.height <= 200
     assert capture.temporary is False
+
+
+def test_multimodal_preprocess_resizes_and_compresses_before_inference(tmp_path):
+    path = tmp_path / "large.png"
+    Image.new("RGB", (3840, 2160), "white").save(path)
+    capture = ImageCapture(VisionSource.SCREEN, now_iso(), 3840, 2160, path=path, temporary=False)
+    provider = OllamaVisionProvider("vision", "http://localhost:11434", 1, 1280, 80)
+    encoded, metadata = provider.preprocess(capture)
+    assert encoded
+    assert metadata["width"] == 1280 and metadata["height"] == 720
+    assert metadata["bytes"] < 1280 * 720 * 3
+    provider.close()
+
+
+def test_provider_accepts_qwen_thinking_envelope_and_normalizes_optional_types():
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"message": {"content": "", "thinking": '{"summary":"Tela simples","visible_text":"Linha A\\nLinha B","confidence":"0.75"}'}}
+
+    class Session:
+        def post(self, *args, **kwargs):
+            return Response()
+
+        def close(self):
+            pass
+
+    provider = OllamaVisionProvider("vision", "http://local", 1, 1280, 80, session=Session())
+    analysis = provider.analyze("image", "question")
+    assert analysis.visible_text == ("Linha A", "Linha B")
+    assert analysis.confidence == 0.75
 
 
 def test_active_window_capture_uses_window_metadata(tmp_path, monkeypatch):
@@ -253,14 +330,95 @@ def test_legacy_system_screenshot_reuses_common_capturer(tmp_path, monkeypatch):
     assert result.success and common.called
 
 
-def test_brain_screen_question_does_not_fake_multimodal_analysis(tmp_path):
-    vision = manager(tmp_path)
+def test_brain_screen_question_uses_separate_multimodal_analysis(tmp_path):
+    provider = FakeVisionProvider(ScreenAnalysis("O desktop mostra apenas uma janela de editor.", applications=("VS Code",), confidence=0.95))
+    vision = manager(tmp_path, provider=provider)
     brain = Brain(FakeLLM(), registry=build_default_registry(vision), vision=vision)
     response = brain.process("O que está aparecendo na minha tela?")
-    assert response.response_type is Intent.CONVERSATION
-    assert "não possui capacidade multimodal" in response.message
+    assert response.response_type is Intent.VISION
+    assert "desktop" in response.message
     assert vision.screen.index == 1
+    assert provider.calls == 1
     brain.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("label", "analysis"),
+    [
+        ("desktop vazio", ScreenAnalysis("Desktop vazio, sem janelas abertas.", confidence=0.98)),
+        ("browser", ScreenAnalysis("Um navegador mostra uma página.", applications=("Browser",), ui_elements=("barra de endereço",), confidence=0.9)),
+        ("VS Code", ScreenAnalysis("O VS Code mostra um arquivo Python.", applications=("VS Code",), confidence=0.9)),
+        ("erro Python", ScreenAnalysis("Um traceback Python está visível.", errors=("NameError na linha exibida",), confidence=0.94)),
+        ("terminal", ScreenAnalysis("Um terminal está aberto.", applications=("Terminal",), confidence=0.88)),
+        ("janela múltipla", ScreenAnalysis("Duas janelas estão lado a lado.", applications=("Browser", "Editor"), confidence=0.8)),
+        ("texto pequeno", ScreenAnalysis("Há texto pequeno que não está totalmente legível.", confidence=0.4)),
+    ],
+)
+def test_structured_screen_scenarios_are_preserved_without_forcing_fields(tmp_path, label, analysis):
+    vision = manager(tmp_path, provider=FakeVisionProvider(analysis))
+    result = vision.analyze_screen(f"Analise: {label}")
+    assert result.success
+    assert result.analysis.summary == analysis.summary
+    assert set(result.analysis.to_dict()) <= {"summary", "visible_text", "applications", "errors", "ui_elements", "confidence"}
+    assert set(result.timings_ms) == {"capture_ms", "preprocess_ms", "vision_inference_ms", "total_ms"}
+    vision.shutdown()
+
+
+def test_model_unavailable_fails_cleanly_and_removes_capture(tmp_path):
+    provider = FakeVisionProvider(unavailable=True)
+    vision = manager(tmp_path, provider=provider)
+    result = vision.analyze_screen("O que aparece?")
+    assert not result.success and result.error_code == "VISION_INFERENCE_FAILED"
+    assert not (tmp_path / "screen-1.png").exists()
+    assert vision.status == "ONLINE"
+    vision.shutdown()
+
+
+def test_follow_up_reuses_recent_structured_analysis_without_new_screenshot(tmp_path):
+    analysis = ScreenAnalysis("Um traceback está visível.", errors=("TypeError: valor inválido",), confidence=0.9)
+    provider = FakeVisionProvider(analysis)
+    vision = manager(tmp_path, provider=provider)
+    brain = Brain(FakeLLM(), vision=vision)
+    first = brain.process("Isabella, olhe minha tela.")
+    second = brain.process("O que significa esse erro?")
+    assert first.response_type is Intent.VISION and second.response_type is Intent.VISION
+    assert "TypeError" in second.message
+    assert vision.screen.index == 1 and provider.calls == 1
+    brain.shutdown()
+
+
+def test_analysis_updates_only_lightweight_context_fields(tmp_path):
+    context = ContextManager(CONTEXT_CONFIG)
+    analysis = ScreenAnalysis(
+        "Editor com traceback.", applications=("VS Code",),
+        errors=("ValueError: entrada inválida",), confidence=0.9,
+    )
+    vision = manager(tmp_path, context=context, provider=FakeVisionProvider(analysis))
+    assert vision.analyze_screen("Analise o erro").success
+    snapshot = context.get_snapshot()
+    assert snapshot.last_screen_summary == "Editor com traceback."
+    assert snapshot.last_detected_error == "ValueError: entrada inválida"
+    assert snapshot.last_visible_application == "VS Code"
+    assert not hasattr(snapshot, "screenshot") and not hasattr(snapshot, "image_buffer")
+    vision.shutdown()
+
+
+def test_simple_screen_hallucination_guard_reports_uncertainty_and_no_objects(tmp_path):
+    analysis = ScreenAnalysis("Uma área branca simples; não há detalhes suficientes.", confidence=0.25)
+    result = manager(tmp_path, provider=FakeVisionProvider(analysis)).analyze_screen("Descreva somente o visível")
+    assert result.analysis.applications == ()
+    assert result.analysis.visible_text == ()
+    assert "baixa confiança" in result.message
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["O que está aparecendo na minha tela?", "Que erro é esse?", "O que significa essa mensagem?", "Resuma o que está aberto."],
+)
+def test_router_recognizes_multimodal_vision_intent(text):
+    from Isabella.Intelligence.router import Router
+
+    assert Router().route(text) is Intent.VISION
 
 
 @pytest.mark.parametrize(

@@ -246,23 +246,28 @@ class Brain:
 
     def _handle_vision_request(self, text: str) -> tuple[SkillRequest | None, BrainResponse | None]:
         normalized = normalize(text)
-        asks_about_screen = "tela" in normalized and any(
-            phrase in normalized for phrase in ("o que esta aparecendo", "o que aparece", "o que tem", "analise", "descreva")
+        asks_about_screen = any(
+            phrase in normalized for phrase in (
+                "o que esta aparecendo", "o que aparece", "o que tem na tela", "o que tem em minha tela",
+                "olhe minha tela", "olhe a minha tela", "analise minha tela", "descreva a tela", "descreva minha tela",
+                "que erro e esse", "que erro eh esse", "o que significa esse erro", "o que significa essa mensagem",
+                "resuma o que esta aberto",
+            )
         )
         if not asks_about_screen:
             return None, None
-        request = SkillRequest("vision.capture_screen", {})
-        if not self.registry or not self.registry.exists(request.skill):
-            return None, BrainResponse(Intent.CONVERSATION, "Vision está indisponível no momento.")
-        self._record_context_action(request)
-        result = self._execute_skill(request.skill, request.arguments, "vision")
-        self._record_context_result(result)
-        if not result.success:
-            return None, BrainResponse(Intent.CONVERSATION, result.message)
-        return None, BrainResponse(
-            Intent.CONVERSATION,
-            "A captura foi realizada, mas o modelo atual não possui capacidade multimodal para analisar a imagem.",
-        )
+        if not self.vision:
+            return None, BrainResponse(Intent.VISION, "Vision está indisponível no momento.")
+        follow_up = any(reference in normalized for reference in ("esse erro", "essa mensagem", "isso"))
+        recent = self.vision.recent_analysis() if follow_up else None
+        if recent:
+            message = recent.to_message()
+            if recent.errors:
+                message = f"Na análise recente, identifiquei: {recent.errors[0]}. {message}"
+            return None, BrainResponse(Intent.VISION, message)
+        active_window = "janela" in normalized or "erro" in normalized or "mensagem" in normalized
+        result = self.vision.analyze_screen(text, active_window=active_window)
+        return None, BrainResponse(Intent.VISION, result.message)
 
     def _record_context_action(self, request: SkillRequest) -> None:
         if not self.context:
