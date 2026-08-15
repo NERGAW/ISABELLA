@@ -1,5 +1,6 @@
-"""ISABELLA temporary text entry point."""
+"""ISABELLA entry point: HUD by default, CLI on request."""
 
+import argparse
 import threading
 
 from Isabella.Core.app import IsabellaApp
@@ -42,7 +43,7 @@ def display_response(app: IsabellaApp, brain: Brain, response: BrainResponse, al
         app.speak(response.message)
 
 
-def main() -> None:
+def run_cli() -> None:
     app = IsabellaApp()
     try:
         app.start()
@@ -71,6 +72,18 @@ def main() -> None:
         pass
     finally:
         app.shutdown()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="I.S.A.B.E.L.L.A. local assistant")
+    parser.add_argument("--cli", action="store_true", help="use the terminal interface")
+    args = parser.parse_args()
+    if args.cli:
+        run_cli()
+        return
+    from Isabella.Interface.hud import run_gui
+
+    raise SystemExit(run_gui())
 
 
 if __name__ == "__main__":

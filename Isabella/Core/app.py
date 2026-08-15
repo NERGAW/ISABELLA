@@ -69,7 +69,11 @@ class IsabellaApp:
             self.voice_listener = None
             return False
 
-    def start_tts(self, config_path: Path | None = None) -> bool:
+    def start_tts(
+        self,
+        config_path: Path | None = None,
+        state_callback: Callable[[bool], None] | None = None,
+    ) -> bool:
         """Start optional voice output with listener echo protection."""
         try:
             from Isabella.Voice.models import load_voice_config
@@ -88,6 +92,8 @@ class IsabellaApp:
                     self.voice_listener.pause_for_speech()
                 else:
                     self.voice_listener.resume_after_speech()
+                if state_callback:
+                    state_callback(speaking)
 
             self.tts_manager = TTSManager(tts_config, on_speaking_change=speaking_changed)
             initialized = self.tts_manager.initialize()

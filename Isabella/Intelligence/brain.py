@@ -34,9 +34,9 @@ class Brain:
             registry=build_default_registry(),
         )
 
-    def process(self, text: str) -> BrainResponse:
+    def process(self, text: str, intent: Intent | None = None) -> BrainResponse:
         started = perf_counter()
-        intent = self.router.route(text)
+        intent = intent or self.router.route(text)
         if intent == Intent.CONVERSATION:
             try:
                 message = self.llm.chat(text)

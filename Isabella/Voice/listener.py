@@ -44,6 +44,8 @@ class VoiceListener:
         self.state = ListenerState.STOPPED
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
+        self._manual_paused = False
+        self._speech_paused = False
         self._audio_queue: Queue[tuple[np.ndarray, float]] = Queue(maxsize=queue_size)
         self._capture_thread: threading.Thread | None = None
         self._processing_thread: threading.Thread | None = None
@@ -156,13 +158,26 @@ class VoiceListener:
         return not any(thread and thread.is_alive() for thread in (self._capture_thread, self._processing_thread))
 
     def pause_for_speech(self) -> None:
+        self._speech_paused = True
         self._pause_event.set()
         self.state = ListenerState.SPEAKING
 
     def resume_after_speech(self) -> None:
-        self._pause_event.clear()
+        self._speech_paused = False
+        if not self._manual_paused:
+            self._pause_event.clear()
         if not self._stop_event.is_set() and self.state != ListenerState.ERROR:
-            self.state = ListenerState.LISTENING
+            self.state = ListenerState.LISTENING if not self._manual_paused else ListenerState.STOPPED
+
+    def set_microphone_enabled(self, enabled: bool) -> None:
+        self._manual_paused = not enabled
+        if enabled and not self._speech_paused:
+            self._pause_event.clear()
+            if not self._stop_event.is_set() and self.state != ListenerState.ERROR:
+                self.state = ListenerState.LISTENING
+        elif not enabled:
+            self._pause_event.set()
+            self.state = ListenerState.STOPPED
 
     @property
     def average_total_latency_ms(self) -> float:

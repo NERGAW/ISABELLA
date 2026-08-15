@@ -1,0 +1,177 @@
+"""Signal-based bridge between the HUD and backend services."""
+
+import logging
+from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
+
+from Isabella.Intelligence.models import SkillRequest
+from .models import MessageRole, MessageType, SUBSYSTEMS, UIMessage, UIState
+from .workers import BrainWorker, FunctionWorker
+
+
+LOGGER = logging.getLogger("UI")
+
+
+class InterfaceController(QObject):
+    message_added = Signal(object)
+    state_changed = Signal(str)
+    subsystem_changed = Signal(str, str)
+    busy_changed = Signal(bool)
+    confirmation_required = Signal(object)
+    backend_latency = Signal(float)
+    voice_command_received = Signal(str)
+    tts_speaking_received = Signal(bool)
+
+    def __init__(self, app, brain, message_limit: int = 100) -> None:
+        super().__init__()
+        self.app = app
+        self.brain = brain
+        self.message_limit = message_limit
+        self.messages: list[UIMessage] = []
+        self.state = UIState.IDLE
+        self.subsystems = {name: "OFFLINE" for name in SUBSYSTEMS}
+        self.busy = False
+        self.microphone_enabled = True
+        self.thread_pool = QThreadPool(self)
+        self.thread_pool.setMaxThreadCount(1)
+        self._workers: set[object] = set()
+        self.voice_command_received.connect(self.submit_voice_text)
+        self.tts_speaking_received.connect(self.set_tts_speaking)
+
+    def start_services(self) -> None:
+        self.update_subsystem("CORE", "ONLINE")
+        self.update_subsystem("SKILLS", "ONLINE" if self.brain.registry else "DEGRADED")
+        self.update_subsystem("PLANNER", "ONLINE")
+        voice_ok = self.app.start_voice(self.voice_command_received.emit)
+        self.update_subsystem("VOICE INPUT", "ONLINE" if voice_ok else "DEGRADED")
+        tts_ok = self.app.start_tts(state_callback=self.tts_speaking_received.emit)
+        self.update_subsystem("VOICE OUTPUT", "ONLINE" if tts_ok else "DEGRADED")
+        self._start_health_check()
+        self.add_message(MessageRole.SYSTEM, "Interface pronta.", MessageType.STATUS)
+        LOGGER.info("started")
+
+    def _start_health_check(self) -> None:
+        worker = FunctionWorker(self.brain.llm.health_check)
+        worker.signals.result.connect(lambda healthy, latency: self.update_subsystem("LLM", "ONLINE" if healthy else "DEGRADED"))
+        worker.signals.error.connect(lambda error: self.update_subsystem("LLM", "ERROR"))
+        self._start_worker(worker)
+
+    @Slot(str)
+    def submit_text(self, text: str) -> None:
+        self._submit(text, from_voice=False)
+
+    @Slot(str)
+    def submit_voice_text(self, text: str) -> None:
+        self._submit(text, from_voice=True)
+
+    def _submit(self, text: str, from_voice: bool) -> None:
+        cleaned = text.strip()
+        if not cleaned:
+            return
+        if self.busy:
+            self.add_message(MessageRole.SYSTEM, "Aguarde a solicitação atual terminar.", MessageType.STATUS)
+            return
+        self.add_message(MessageRole.USER, cleaned)
+        LOGGER.info("user message source=%s", "voice" if from_voice else "text")
+        self._set_busy(True)
+        self.set_state(UIState.THINKING)
+        worker = BrainWorker(self.brain, cleaned)
+        worker.signals.phase.connect(lambda phase: self.set_state(UIState(phase)))
+        worker.signals.result.connect(self._handle_brain_response)
+        worker.signals.error.connect(self._handle_error)
+        worker.signals.finished.connect(lambda: self._set_busy(False))
+        self._start_worker(worker)
+        LOGGER.info("backend request")
+
+    @Slot(object, float)
+    def _handle_brain_response(self, response, latency_ms: float) -> None:
+        self.backend_latency.emit(latency_ms)
+        self.add_message(MessageRole.ISABELLA, response.message, MessageType.ACTION)
+        LOGGER.info("response received latency_ms=%.2f", latency_ms)
+        pending = next((result for result in response.skill_results if result.status == "confirmation_required"), None)
+        if pending:
+            request = response.skill_request or SkillRequest(pending.skill_id, pending.data["arguments"])
+            self.confirmation_required.emit(request)
+        else:
+            self.app.speak(response.message)
+        self.set_state(UIState.IDLE)
+
+    @Slot(object)
+    def confirm_critical(self, request: SkillRequest) -> None:
+        if self.busy:
+            return
+        self._set_busy(True)
+        self.set_state(UIState.EXECUTING)
+        worker = FunctionWorker(self.brain.confirm, request)
+        worker.signals.result.connect(self._handle_confirmation_result)
+        worker.signals.error.connect(self._handle_error)
+        worker.signals.finished.connect(lambda: self._set_busy(False))
+        self._start_worker(worker)
+
+    @Slot(object, float)
+    def _handle_confirmation_result(self, result, latency_ms: float) -> None:
+        self.add_message(MessageRole.ISABELLA, result.message, MessageType.ACTION)
+        self.app.speak(result.message)
+        self.backend_latency.emit(latency_ms)
+        self.set_state(UIState.IDLE)
+
+    def cancel_critical(self) -> None:
+        self.add_message(MessageRole.SYSTEM, "Ação crítica cancelada.", MessageType.STATUS)
+        self.app.speak("Ação cancelada.")
+        self.set_state(UIState.IDLE)
+
+    @Slot(str)
+    def _handle_error(self, error: str) -> None:
+        self.add_message(MessageRole.ERROR, f"Falha no backend: {error}", MessageType.ERROR)
+        self.set_state(UIState.ERROR)
+        LOGGER.error("error=%s", error)
+
+    def _start_worker(self, worker) -> None:
+        self._workers.add(worker)
+        worker.signals.finished.connect(lambda current=worker: self._workers.discard(current))
+        self.thread_pool.start(worker)
+
+    def add_message(self, role: MessageRole, text: str, message_type: MessageType = MessageType.TEXT) -> None:
+        message = UIMessage(role, text, type=message_type)
+        self.messages.append(message)
+        if len(self.messages) > self.message_limit:
+            del self.messages[: len(self.messages) - self.message_limit]
+        self.message_added.emit(message)
+
+    def set_state(self, state: UIState) -> None:
+        self.state = state
+        self.state_changed.emit(state.value)
+        LOGGER.info("state changed=%s", state.value)
+
+    @Slot(bool)
+    def set_tts_speaking(self, speaking: bool) -> None:
+        if speaking:
+            self.set_state(UIState.SPEAKING)
+        elif not self.busy:
+            self.set_state(UIState.IDLE)
+
+    def update_subsystem(self, name: str, status: str) -> None:
+        self.subsystems[name] = status
+        self.subsystem_changed.emit(name, status)
+
+    def _set_busy(self, busy: bool) -> None:
+        self.busy = busy
+        self.busy_changed.emit(busy)
+
+    def toggle_microphone(self, enabled: bool) -> None:
+        self.microphone_enabled = enabled
+        if self.app.voice_listener:
+            self.app.voice_listener.set_microphone_enabled(enabled)
+        self.update_subsystem("VOICE INPUT", "ONLINE" if enabled else "OFFLINE")
+        self.set_state(UIState.LISTENING if enabled else UIState.IDLE)
+
+    set_microphone_enabled = toggle_microphone
+
+    def stop_speech(self) -> None:
+        if self.app.tts_manager:
+            self.app.tts_manager.stop()
+        self.set_state(UIState.IDLE)
+
+    def shutdown(self) -> None:
+        self.thread_pool.clear()
+        self.thread_pool.waitForDone(5000)
+        self.app.shutdown()
