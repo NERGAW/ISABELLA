@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "screen_capture_enabled": true,
+  "camera_enabled": true,
+  "camera_device": null,
+  "continuous_capture": false,
+  "max_image_width": 1920,
+  "max_image_height": 1080,
+  "temporary_images": true,
+  "multimodal_model": null
+}

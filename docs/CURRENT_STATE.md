@@ -24,6 +24,8 @@
 - Context Engine volátil com janela ativa, projeto, dispositivos, estados,
   última ação/resultado e resolução conservadora de referências.
 - Repetição segura de ações sem contornar o nível de risco da Skill.
+- Vision local sob demanda para tela, janela ativa e um frame de webcam, com
+  temporários limitados e sem captura contínua.
 
 ## Limites conhecidos
 
@@ -37,6 +39,6 @@
 
 ## Deliberadamente fora do escopo atual
 
-Não existem Vision, reconhecimento facial, Event Bus, MCP, Nodes,
+Não existem reconhecimento facial, Event Bus, MCP, Nodes,
 Android, Arduino, ESP32 ou integração Home Assistant. A Fase 7 não adiciona
 essas funcionalidades.

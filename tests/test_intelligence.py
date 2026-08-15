@@ -64,7 +64,7 @@ def test_router_intents(text, expected):
 @pytest.mark.parametrize(
     ("text", "skill", "arguments"),
     [
-        ("Tire uma captura da tela.", "system.screenshot", {}),
+        ("Tire uma captura da tela.", "vision.capture_screen", {}),
         ("Reinicie o computador.", "system.restart", {}),
         ("Deixa o volume na metade.", "system.set_volume", {"value": 50}),
         ("Abre o editor de código.", "applications.open", {"name": "vscode"}),
@@ -118,7 +118,7 @@ def test_brain_multi_step():
     assert response.response_type == Intent.MULTI_STEP
     assert [step.skill for step in response.plan.steps] == [
         "applications.open",
-        "system.screenshot",
+        "vision.capture_screen",
     ]
 
 

@@ -47,6 +47,8 @@ class InterfaceController(QObject):
         self.update_subsystem("MEMORY", getattr(memory, "status", "OFFLINE"))
         context = getattr(self.brain, "context", None)
         self.update_subsystem("CONTEXT", getattr(context, "status", "OFFLINE"))
+        vision = getattr(self.brain, "vision", None)
+        self.update_subsystem("VISION", getattr(vision, "status", "OFFLINE"))
         if context:
             context.refresh_active_window(force=True)
             context.refresh_devices()

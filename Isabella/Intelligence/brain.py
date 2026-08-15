@@ -20,6 +20,7 @@ from Isabella.Memory.retrieval import (
 )
 from Isabella.Context import ContextManager
 from Isabella.Skills.base import RiskLevel
+from Isabella.Vision import VisionManager
 
 
 LOGGER = logging.getLogger("BRAIN")
@@ -27,13 +28,14 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.planner = planner or Planner(router=self.router)
         self.registry = registry
         self.memory = memory
         self.context = context
+        self.vision = vision
         self.latencies_ms: deque[float] = deque(maxlen=200)
         self.startup_metrics: dict[str, float] = {}
 
@@ -45,13 +47,16 @@ class Brain:
         config_ms = (perf_counter() - config_started) * 1000
         router = Router()
         memory = MemoryManager.from_config()
+        context = ContextManager.from_config(memory=memory)
+        vision = VisionManager.from_config(context=context)
         brain = cls(
             OllamaProvider(config),
             router=router,
             planner=Planner(max_steps=int(config["max_plan_steps"]), router=router),
-            registry=build_default_registry(),
+            registry=build_default_registry(vision),
             memory=memory,
-            context=ContextManager.from_config(memory=memory),
+            context=context,
+            vision=vision,
         )
         brain.startup_metrics = {
             "intelligence_config_ms": config_ms,
@@ -80,6 +85,11 @@ class Brain:
         if contextual_response is not None:
             self._finalize_conversation(text, contextual_response.message)
             return contextual_response
+        vision_request, vision_response = self._handle_vision_request(text)
+        if vision_response is not None:
+            self._finalize_conversation(text, vision_response.message)
+            return vision_response
+        contextual_request = contextual_request or vision_request
         router_started = perf_counter()
         intent = Intent.SINGLE_SKILL if contextual_request else (intent or self.router.route(text))
         router_ms = router_ms if router_ms is not None else (perf_counter() - router_started) * 1000
@@ -175,6 +185,26 @@ class Brain:
             return SkillRequest(skill, {"name": resolved.entity}), None
         return None, None
 
+    def _handle_vision_request(self, text: str) -> tuple[SkillRequest | None, BrainResponse | None]:
+        normalized = normalize(text)
+        asks_about_screen = "tela" in normalized and any(
+            phrase in normalized for phrase in ("o que esta aparecendo", "o que aparece", "o que tem", "analise", "descreva")
+        )
+        if not asks_about_screen:
+            return None, None
+        request = SkillRequest("vision.capture_screen", {})
+        if not self.registry or not self.registry.exists(request.skill):
+            return None, BrainResponse(Intent.CONVERSATION, "Vision está indisponível no momento.")
+        self._record_context_action(request)
+        result = self.registry.execute(request.skill, request.arguments)
+        self._record_context_result(result)
+        if not result.success:
+            return None, BrainResponse(Intent.CONVERSATION, result.message)
+        return None, BrainResponse(
+            Intent.CONVERSATION,
+            "A captura foi realizada, mas o modelo atual não possui capacidade multimodal para analisar a imagem.",
+        )
+
     def _record_context_action(self, request: SkillRequest) -> None:
         if not self.context:
             return
@@ -267,6 +297,8 @@ class Brain:
         return sum(self.latencies_ms) / len(self.latencies_ms) if self.latencies_ms else 0.0
 
     def shutdown(self) -> None:
+        if self.vision:
+            self.vision.shutdown()
         if self.memory:
             self.memory.close()
         close = getattr(self.llm, "close", None)

@@ -67,4 +67,7 @@ class ContextSnapshot:
     voice_state: str = "IDLE"
     system_state: dict[str, str] = field(default_factory=dict)
     connected_devices: dict[str, str] = field(default_factory=dict)
+    last_vision_source: str | None = None
+    last_capture_timestamp: str | None = None
+    last_capture_window: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)

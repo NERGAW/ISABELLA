@@ -1,6 +1,7 @@
 requests
 Pillow
 psutil
+pycaw
 faster-whisper
 numpy
 sounddevice
@@ -8,3 +9,4 @@ edge-tts
 pyttsx3
 PySide6
 av
+opencv-python

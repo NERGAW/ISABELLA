@@ -12,7 +12,7 @@ from .models import Intent, SkillRequest
 LOGGER = logging.getLogger("ROUTER")
 ACTION_WORDS = (
     "abra", "abre", "abrir", "inicie", "iniciar", "entrar", "usar", "assistir",
-    "feche", "fechar", "tire", "captura", "volume", "deslig", "reinici", "suspend",
+    "feche", "fechar", "tire", "capture", "captura", "volume", "deslig", "reinici", "suspend",
 )
 
 
@@ -44,6 +44,12 @@ class Router:
 
     def skill_request(self, text: str) -> SkillRequest:
         normalized = self.normalize_text(text)
+        if any(term in normalized for term in ("camera", "webcam")) and any(term in normalized for term in ("capture", "captura", "tire", "imagem", "foto")):
+            return SkillRequest("vision.capture_camera", {})
+        if any(term in normalized for term in ("janela ativa", "janela atual")) and any(term in normalized for term in ("capture", "captura", "tire")):
+            return SkillRequest("vision.capture_active_window", {})
+        if "tela" in normalized and any(term in normalized for term in ("capture", "captura", "tire")):
+            return SkillRequest("vision.capture_screen", {})
         url_match = re.search(r"https?://[^\s]+", normalized)
         if url_match:
             return SkillRequest("browser.open_url", {"url": url_match.group(0).rstrip(".,!?")})

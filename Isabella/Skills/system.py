@@ -4,8 +4,8 @@ from datetime import datetime
 import subprocess
 from typing import Any
 
-from PIL import ImageGrab
 from Isabella.Core.config import PROJECT_ROOT
+from Isabella.Vision.screen import ScreenCapturer
 from .base import ParameterSpec, RiskLevel, SkillDefinition, SkillResult
 
 
@@ -13,14 +13,20 @@ SCREENSHOT_DIRECTORY = PROJECT_ROOT / "data" / "screenshots"
 
 
 def create_system_skills(
-    screenshot_grabber=ImageGrab.grab,
+    screenshot_grabber=None,
     command_runner=subprocess.run,
+    screen_capturer=None,
 ) -> list[SkillDefinition]:
+    capturer = screen_capturer or ScreenCapturer(grabber=screenshot_grabber)
+
     def screenshot(arguments: dict[str, Any]) -> SkillResult:
         SCREENSHOT_DIRECTORY.mkdir(parents=True, exist_ok=True)
         destination = SCREENSHOT_DIRECTORY / f"screenshot_{datetime.now():%Y%m%d_%H%M%S}.png"
-        screenshot_grabber().save(destination)
-        return SkillResult(True, "system.screenshot", "Captura de tela salva.", {"path": str(destination)})
+        capture = capturer.capture_screen(destination=destination, temporary=False)
+        return SkillResult(
+            True, "system.screenshot", "Captura de tela salva.",
+            {"path": str(destination), "width": capture.width, "height": capture.height},
+        )
 
     def set_volume(arguments: dict[str, Any]) -> SkillResult:
         value = arguments["value"]
