@@ -37,6 +37,7 @@ class Subsystem(str, Enum):
     SKILL_FORGE = "SKILL FORGE"
     AUTOMATIONS = "AUTOMATIONS"
     SCHEDULER = "SCHEDULER"
+    API = "API"
 
 
 @dataclass(frozen=True)

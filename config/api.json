@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "host": "127.0.0.1",
+  "port": 8765,
+  "allow_remote": false,
+  "authentication_required": true,
+  "token_file": "data/api_token.txt",
+  "cors_allowed_origins": [],
+  "command_rate_limit": 10,
+  "rate_window_seconds": 60,
+  "max_request_bytes": 16384
+}

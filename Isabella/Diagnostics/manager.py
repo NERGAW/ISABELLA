@@ -200,6 +200,13 @@ class DiagnosticsManager:
                 details = scheduler.diagnostics()
                 status = HealthStatus.ONLINE if details.get("storage_accessible") else HealthStatus.ERROR
                 return status, details
+            if subsystem is Subsystem.API:
+                api = getattr(brain, "api", None) or getattr(self.runtime, "api", None)
+                if api is None:
+                    return HealthStatus.UNKNOWN, {"status": "UNBOUND"}
+                details = api.health_check()
+                status = HealthStatus.ONLINE if details.get("status") == "ONLINE" else HealthStatus.DEGRADED if details.get("status") == "DISABLED" else HealthStatus.ERROR
+                return status, details
             return HealthStatus.UNKNOWN, {}
 
         result = health(subsystem, probe)

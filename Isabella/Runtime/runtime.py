@@ -199,6 +199,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.brain = None
         self.controller = None
         self.window = None
+        self.api = None
         self._register_application_services()
 
     @classmethod
@@ -216,6 +217,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.register(Service("Skill Forge", ("Skills", "Security"), start_hook=self._start_skillforge, stop_hook=self._stop_skillforge, health_hook=self._health_skillforge))
         self.register(Service("Automations", ("Skills", "Security", "Event Bus"), start_hook=self._start_automations, stop_hook=self._stop_automations, health_hook=self._health_automations))
         self.register(Service("Scheduler", ("Automations", "Skills", "Security", "Event Bus"), start_hook=self._start_scheduler, stop_hook=self._stop_scheduler, health_hook=self._health_scheduler))
+        self.register(Service("API", ("Intelligence", "Skills", "Security", "Event Bus"), start_hook=self._start_api, stop_hook=self._stop_api, health_hook=self._health_api))
         self.register(Service("MCP", ("Skills", "Security"), start_hook=self._start_mcp, stop_hook=self._stop_mcp, health_hook=self._health_mcp))
         self.register(Service("Research", ("Intelligence",), start_hook=self._start_research, stop_hook=self._stop_research, health_hook=self._health_research))
         self.register(Service("Vision", ("Context",), start_hook=lambda: bool(self.brain.vision), health_hook=self._health_vision))
@@ -325,6 +327,27 @@ class ApplicationRuntime(IsabellaRuntime):
         if not self.brain or not self.brain.scheduler:
             return ServiceState.ERROR
         return ServiceState.ONLINE if self.brain.scheduler.diagnostics()["storage_accessible"] else ServiceState.ERROR
+
+    def _start_api(self):
+        from Isabella.API import LocalAPIServer
+        self.api = LocalAPIServer.from_config(brain=self.brain, runtime=self, event_bus=self.event_bus)
+        self.brain.api = self.api
+        return self.api.start()
+
+    def _stop_api(self):
+        if not self.api:
+            return True
+        stopped = self.api.shutdown()
+        if self.brain:
+            self.brain.api = None
+        self.api = None
+        return stopped
+
+    def _health_api(self):
+        if not self.api:
+            return ServiceState.ERROR
+        status = self.api.health_check()["status"]
+        return ServiceState.ONLINE if status == "ONLINE" else ServiceState.DEGRADED if status == "DISABLED" else ServiceState.ERROR
 
     def _stop_mcp(self):
         return self.brain.mcp.shutdown() if self.brain and self.brain.mcp else True

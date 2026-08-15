@@ -1,6 +1,6 @@
 # Estado atual da I.S.A.B.E.L.L.A.
 
-Checkpoint validado em 15/08/2026 após a Fase 21.
+Checkpoint validado em 15/08/2026 após a Fase 22.
 
 ## Arquitetura operacional
 
@@ -42,7 +42,7 @@ LLM podem falhar isoladamente; Core, Skills locais, HUD/CLI e shutdown continuam
 - Vision sob demanda para tela, janela e câmera sem captura contínua.
 - Compreensão multimodal local sob demanda com `qwen3-vl:2b`, imagem reduzida e
   contexto apenas textual/estruturado.
-- Diagnostics para 18 subsistemas, métricas e histórico limitado.
+- Diagnostics para 19 subsistemas, métricas e histórico limitado.
 - MCP modular com `stdio` e Streamable HTTP oficiais, desligado de conexões por
   padrão e sempre subordinado ao Security Policy Engine local.
 - Research sob demanda com fontes consultadas, citações, fetch público protegido
@@ -53,6 +53,8 @@ LLM podem falhar isoladamente; Core, Skills locais, HUD/CLI e shutdown continuam
   condições limitadas, cooldown, proteção de cadeia e ações sujeitas ao Security.
 - Scheduler timezone-aware para tarefas únicas, intervalos, recorrência diária e
   semanal, com SQLite próprio, política de tarefas perdidas e worker eficiente.
+- API REST local em `127.0.0.1`, autenticada por token fora do Git, com rotas
+  allowlisted, rate limit, CORS restrito e comandos encaminhados ao Brain/Security.
 - Logs com rotação de 5 MB e três backups.
 
 ## Auditoria da Fase 15
@@ -92,3 +94,5 @@ navegação autônoma complexa. A Skill Forge não gera nem executa código arbi
 não instala dependências e não cria Skills automaticamente durante conversas.
 Não há Nodes, cron complexo nem APIs externas. A interpretação temporal aceita
 somente formas determinísticas documentadas e pede clarificação em ambiguidades.
+A API não abre firewall, não escuta na internet por padrão e não possui endpoint
+de confirmação remota para ações críticas.
