@@ -1,6 +1,6 @@
 # Estado atual da I.S.A.B.E.L.L.A.
 
-Checkpoint validado em 15/08/2026 após a Fase 17.
+Checkpoint validado em 15/08/2026 após a Fase 19.
 
 ## Arquitetura operacional
 
@@ -18,7 +18,7 @@ Voice Input / HUD / CLI
   ↓
 Router → Brain → Planner (quando composto) / Skill Registry
   ↓
-Security Policy Engine
+Security Policy Engine (inclusive Skills compostas da Skill Forge)
   ↓
 Executor allowlisted local / MCP Tool Registry / Research Manager
   ↓
@@ -42,11 +42,13 @@ LLM podem falhar isoladamente; Core, Skills locais, HUD/CLI e shutdown continuam
 - Vision sob demanda para tela, janela e câmera sem captura contínua.
 - Compreensão multimodal local sob demanda com `qwen3-vl:2b`, imagem reduzida e
   contexto apenas textual/estruturado.
-- Diagnostics para 15 subsistemas, métricas e histórico limitado.
+- Diagnostics para 16 subsistemas, métricas e histórico limitado.
 - MCP modular com `stdio` e Streamable HTTP oficiais, desligado de conexões por
   padrão e sempre subordinado ao Security Policy Engine local.
 - Research sob demanda com fontes consultadas, citações, fetch público protegido
   e cache curto limitado.
+- Skill Forge declarativa para compor Skills existentes, com validação estática,
+  sandbox sem efeitos, testes obrigatórios, aprovação e habilitação separadas.
 - Logs com rotação de 5 MB e três backups.
 
 ## Auditoria da Fase 15
@@ -82,4 +84,5 @@ TTS remove WAV temporário e SQLite/HTTP/Event Bus têm fechamento explícito.
 
 Não existem servidores MCP configurados, reconhecimento facial, biometria, Nodes
 ou contas externas conectadas neste checkpoint. Research não realiza login nem
-navegação autônoma complexa.
+navegação autônoma complexa. A Skill Forge não gera nem executa código arbitrário,
+não instala dependências e não cria Skills automaticamente durante conversas.

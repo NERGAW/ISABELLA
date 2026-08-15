@@ -39,3 +39,7 @@ Uma ação `CRITICAL` retorna `confirmation_required` sem executar. Apenas a res
 3. Registre a definição em `build_default_registry()`.
 4. Adicione testes de validação, sucesso, erro e segurança.
 5. Nunca aceite código ou comandos executáveis provenientes do modelo.
+
+Skills compostas declarativas podem seguir o fluxo controlado descrito em
+`docs/SKILL_FORGE.md`. Elas continuam registradas neste mesmo Registry e sujeitas
+ao mesmo Security Policy Engine.

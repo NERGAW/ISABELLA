@@ -179,6 +179,13 @@ class DiagnosticsManager:
                 details = research.health_check()
                 status = HealthStatus.ONLINE if details.get("provider_configured") else HealthStatus.DEGRADED
                 return status, details
+            if subsystem is Subsystem.SKILL_FORGE:
+                forge = getattr(brain, "skillforge", None)
+                if forge is None:
+                    return HealthStatus.UNKNOWN, {"enabled": False, "bound": False}
+                details = forge.diagnostics()
+                status = HealthStatus.DEGRADED if details.get("failed_validation") else HealthStatus.ONLINE
+                return status, details
             return HealthStatus.UNKNOWN, {}
 
         result = health(subsystem, probe)

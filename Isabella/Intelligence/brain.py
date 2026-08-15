@@ -31,7 +31,7 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.event_bus = event_bus
@@ -39,6 +39,7 @@ class Brain:
         self.diagnostics = diagnostics
         self.mcp = mcp
         self.research = research
+        self.skillforge = skillforge
         self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory
@@ -74,6 +75,8 @@ class Brain:
         brain.mcp = MCPManager.from_config(skill_registry=registry, event_bus=event_bus)
         from Isabella.Research import ResearchManager
         brain.research = ResearchManager.from_config(llm=brain.llm, event_bus=event_bus)
+        from Isabella.SkillForge import SkillForgeManager
+        brain.skillforge = SkillForgeManager.from_config(registry=registry, event_bus=event_bus)
         diagnostics = DiagnosticsManager.from_config(brain=brain, event_bus=event_bus)
         brain.diagnostics = diagnostics
         registry.register(create_diagnostics_skill(diagnostics))
@@ -385,6 +388,8 @@ class Brain:
         return sum(self.latencies_ms) / len(self.latencies_ms) if self.latencies_ms else 0.0
 
     def shutdown(self) -> None:
+        if self.skillforge:
+            self.skillforge.shutdown()
         if self.research:
             self.research.shutdown()
         if self.mcp:

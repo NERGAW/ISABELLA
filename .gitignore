@@ -10,6 +10,9 @@ logs/*
 !logs/.gitkeep
 data/*
 !data/.gitkeep
+!data/skills/
+data/skills/*
+!data/skills/.gitkeep
 .vscode/
 .pytest_cache/
 .mypy_cache/

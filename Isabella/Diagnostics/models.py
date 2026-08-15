@@ -34,6 +34,7 @@ class Subsystem(str, Enum):
     SECURITY = "SECURITY"
     MCP = "MCP"
     RESEARCH = "RESEARCH"
+    SKILL_FORGE = "SKILL FORGE"
 
 
 @dataclass(frozen=True)

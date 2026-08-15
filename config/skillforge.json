@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "storage_directory": "data/skills",
+  "max_steps": 8,
+  "allowed_dependencies": [],
+  "allow_generated_code": false,
+  "require_explicit_approval": true
+}
