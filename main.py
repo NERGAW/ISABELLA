@@ -1,8 +1,41 @@
 """ISABELLA temporary text entry point."""
 
+import threading
+
 from Isabella.Core.app import IsabellaApp
 from Isabella.Intelligence.brain import Brain
-from Isabella.Intelligence.models import Intent, SkillRequest
+from Isabella.Intelligence.models import BrainResponse, Intent, SkillRequest
+
+
+OUTPUT_LOCK = threading.Lock()
+
+
+def display_response(brain: Brain, response: BrainResponse, allow_confirmation: bool) -> None:
+    with OUTPUT_LOCK:
+        if response.response_type == Intent.CONVERSATION:
+            print(f"\nISABELLA:\n{response.message}")
+            return
+        print(f"\n[ROUTER] {response.response_type.value}")
+        for result in response.skill_results:
+            print(f"[SKILL] {result.skill_id}")
+            print(f"[STATUS] {result.status}")
+            print(f"\nISABELLA:\n{result.message}")
+            if result.status != "confirmation_required":
+                continue
+            if not allow_confirmation:
+                print("Confirme ações críticas pelo modo texto.")
+                continue
+            confirmation = input("Confirmar esta ação? (sim/não) ").strip().lower()
+            if confirmation == "sim":
+                request = response.skill_request or SkillRequest(
+                    result.skill_id, result.data["arguments"]
+                )
+                confirmed = brain.confirm(request)
+                print(f"[STATUS] {confirmed.status}")
+                print(f"\nISABELLA:\n{confirmed.message}")
+            else:
+                print("[STATUS] cancelled")
+                print("\nISABELLA:\nAção cancelada.")
 
 
 def main() -> None:
@@ -10,7 +43,13 @@ def main() -> None:
     try:
         app.start()
         brain = Brain.from_config()
-        print("Digite um comando ou 'sair'.")
+
+        def handle_voice_command(command: str) -> None:
+            display_response(brain, brain.process(command), allow_confirmation=False)
+
+        voice_started = app.start_voice(handle_voice_command)
+        voice_status = "ativa" if voice_started else "indisponível/desativada"
+        print(f"Entrada por voz: {voice_status}. Digite um comando ou 'sair'.")
         while True:
             try:
                 user_text = input("\nVocê:\n").strip()
@@ -21,27 +60,7 @@ def main() -> None:
             if not user_text:
                 continue
 
-            response = brain.process(user_text)
-            if response.response_type == Intent.CONVERSATION:
-                print(f"\nISABELLA:\n{response.message}")
-            else:
-                print(f"\n[ROUTER] {response.response_type.value}")
-                for result in response.skill_results:
-                    print(f"[SKILL] {result.skill_id}")
-                    print(f"[STATUS] {result.status}")
-                    print(f"\nISABELLA:\n{result.message}")
-                    if result.status == "confirmation_required":
-                        confirmation = input("Confirmar esta ação? (sim/não) ").strip().lower()
-                        if confirmation == "sim":
-                            request = response.skill_request or SkillRequest(
-                                result.skill_id, result.data["arguments"]
-                            )
-                            confirmed = brain.confirm(request)
-                            print(f"[STATUS] {confirmed.status}")
-                            print(f"\nISABELLA:\n{confirmed.message}")
-                        else:
-                            print("[STATUS] cancelled")
-                            print("\nISABELLA:\nAção cancelada.")
+            display_response(brain, brain.process(user_text), allow_confirmation=True)
     except KeyboardInterrupt:
         pass
     finally:

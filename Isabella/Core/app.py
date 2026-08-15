@@ -3,6 +3,7 @@
 from enum import Enum
 import logging
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from .config import load_config
@@ -26,6 +27,7 @@ class IsabellaApp:
         self.logger: logging.Logger | None = None
         self.status = IsabellaStatus.OFFLINE
         self.state_history = [self.status]
+        self.voice_listener: Any | None = None
 
     def _set_status(self, status: IsabellaStatus) -> None:
         self.status = status
@@ -44,6 +46,28 @@ class IsabellaApp:
         self._set_status(IsabellaStatus.ONLINE)
         self.logger.info("ISABELLA online.")
 
+    def start_voice(self, callback: Callable[[str], object], config_path: Path | None = None) -> bool:
+        """Start optional voice input without affecting Core availability."""
+        try:
+            from Isabella.Voice.listener import VoiceListener
+            from Isabella.Voice.models import load_voice_config
+
+            voice_config = load_voice_config(config_path)
+            if not voice_config["enabled"]:
+                if self.logger:
+                    self.logger.info("Voice input disabled by configuration.")
+                return False
+            self.voice_listener = VoiceListener(voice_config, callback)
+            started = self.voice_listener.start()
+            if self.logger:
+                self.logger.info("Voice input started=%s", started)
+            return started
+        except Exception:
+            if self.logger:
+                self.logger.exception("Voice input unavailable; text mode remains online.")
+            self.voice_listener = None
+            return False
+
     def shutdown(self) -> None:
         """Shut down the application cleanly."""
         if self.status == IsabellaStatus.OFFLINE:
@@ -52,6 +76,10 @@ class IsabellaApp:
         self._set_status(IsabellaStatus.STOPPING)
         if self.logger:
             self.logger.info("ISABELLA stopping.")
+        if self.voice_listener:
+            stopped = self.voice_listener.stop()
+            if self.logger:
+                self.logger.info("Voice input stopped=%s", stopped)
         self._set_status(IsabellaStatus.OFFLINE)
         if self.logger:
             self.logger.info("ISABELLA offline.")

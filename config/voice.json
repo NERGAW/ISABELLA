@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "language": "pt",
+  "wake_word": "isabella",
+  "wake_word_aliases": [
+    "isabella",
+    "isabela"
+  ],
+  "model_size": "base",
+  "device": "cpu",
+  "compute_type": "int8",
+  "input_device": null,
+  "sample_rate": 16000,
+  "vad_enabled": true,
+  "command_timeout_seconds": 12,
+  "speech_threshold": 0.015,
+  "silence_duration_seconds": 1.2,
+  "debug_transcription": true
+}
