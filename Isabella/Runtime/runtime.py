@@ -1,0 +1,407 @@
+"""Central startup, degraded-mode, restart and shutdown coordination."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from time import perf_counter
+from typing import Any
+
+from Isabella.Core.config import ConfigurationError, PROJECT_ROOT
+from Isabella.Events import EventType
+from .registry import ServiceRegistry
+from .service import Service, ServiceState
+
+
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "runtime.json"
+
+
+def load_runtime_config(path: Path | None = None) -> dict[str, Any]:
+    target = path or DEFAULT_CONFIG_PATH
+    try:
+        config = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigurationError(f"Invalid runtime configuration: {target}") from exc
+    required = {"startup_timeout_seconds", "shutdown_timeout_seconds", "restart_attempts", "restart_cooldown_seconds", "enabled_services"}
+    if not isinstance(config, dict) or required - config.keys():
+        raise ConfigurationError("Runtime configuration is missing required fields")
+    if not 0.1 <= float(config["startup_timeout_seconds"]) <= 120:
+        raise ConfigurationError("Runtime startup timeout is invalid")
+    if not 0.1 <= float(config["shutdown_timeout_seconds"]) <= 120:
+        raise ConfigurationError("Runtime shutdown timeout is invalid")
+    if not 0 <= int(config["restart_attempts"]) <= 5 or not 0 <= float(config["restart_cooldown_seconds"]) <= 60:
+        raise ConfigurationError("Runtime restart configuration is invalid")
+    if not isinstance(config["enabled_services"], list):
+        raise ConfigurationError("Runtime enabled services must be a list")
+    return config
+
+
+class IsabellaRuntime:
+    def __init__(self, config: dict[str, Any], *, event_bus=None) -> None:
+        self.config = config
+        self.event_bus = event_bus
+        self.registry = ServiceRegistry()
+        self.state = ServiceState.STOPPED
+        self.startup_ms = 0.0
+        self.shutdown_ms = 0.0
+        self._started: list[Service] = []
+        self.accepting_commands = False
+
+    @classmethod
+    def from_config(cls, path: Path | None = None, **kwargs) -> "IsabellaRuntime":
+        return cls(load_runtime_config(path), **kwargs)
+
+    def register(self, service: Service) -> None:
+        self.registry.register(service)
+
+    def start(self) -> bool:
+        started = perf_counter()
+        self.state = ServiceState.STARTING
+        enabled = set(self.config["enabled_services"])
+        try:
+            order = self.registry.startup_order(enabled)
+        except ValueError:
+            self.state = ServiceState.ERROR
+            raise
+        for service in order:
+            dependencies_ok = all(
+                self.registry.get(name).state in {ServiceState.ONLINE, ServiceState.DEGRADED}
+                for name in service.dependencies
+            )
+            if not dependencies_ok:
+                service.state = ServiceState.ERROR
+                service.last_error = "dependency_unavailable"
+                self._emit(EventType.SERVICE_ERROR, service)
+                if service.required:
+                    self.state = ServiceState.ERROR
+                    self._rollback()
+                    self.startup_ms = (perf_counter() - started) * 1000
+                    return False
+                continue
+            self._emit(EventType.SERVICE_STARTING, service)
+            if service.start(float(self.config["startup_timeout_seconds"])):
+                self._started.append(service)
+                health_state = service.health_check()
+                if health_state is ServiceState.ERROR:
+                    self._emit(EventType.SERVICE_ERROR, service)
+                    if service.required:
+                        self.state = ServiceState.ERROR
+                        self._rollback()
+                        self.startup_ms = (perf_counter() - started) * 1000
+                        return False
+                else:
+                    self._emit(EventType.SERVICE_ONLINE, service)
+            else:
+                self._emit(EventType.SERVICE_ERROR, service)
+                if service.required:
+                    self.state = ServiceState.ERROR
+                    self._rollback()
+                    self.startup_ms = (perf_counter() - started) * 1000
+                    return False
+        degraded = any(service.state in {ServiceState.ERROR, ServiceState.DEGRADED} for service in order)
+        self.state = ServiceState.DEGRADED if degraded else ServiceState.ONLINE
+        self.accepting_commands = True
+        self.startup_ms = (perf_counter() - started) * 1000
+        self._emit(EventType.RUNTIME_STARTED, payload={"state": self.state.value})
+        return True
+
+    def restart_service(self, name: str) -> bool:
+        service = self.registry.get(name)
+        if service is None:
+            return False
+        if any(
+            self.registry.get(dependency).state not in {ServiceState.ONLINE, ServiceState.DEGRADED}
+            for dependency in service.dependencies
+        ):
+            service.last_error = "dependency_unavailable"
+            return False
+        self._emit(EventType.SERVICE_RESTARTING, service)
+        success = service.restart(
+            float(self.config["shutdown_timeout_seconds"]),
+            int(self.config["restart_attempts"]),
+            float(self.config["restart_cooldown_seconds"]),
+        )
+        self._emit(EventType.SERVICE_ONLINE if success else EventType.SERVICE_ERROR, service)
+        if success and service not in self._started:
+            self._started.append(service)
+        if not success and not service.required:
+            self.state = ServiceState.DEGRADED
+        return success
+
+    def shutdown(self) -> bool:
+        started = perf_counter()
+        self.accepting_commands = False
+        self.state = ServiceState.STOPPING
+        self._emit(EventType.RUNTIME_STOPPING)
+        success = True
+        ordered = [service for service in reversed(self._started) if service.name != "Event Bus"]
+        event_services = [service for service in reversed(self._started) if service.name == "Event Bus"]
+        for service in ordered:
+            stopped = service.stop(float(self.config["shutdown_timeout_seconds"]))
+            success = stopped and success
+            self._emit(EventType.SERVICE_STOPPED if stopped else EventType.SERVICE_ERROR, service)
+        self.state = ServiceState.STOPPED if success else ServiceState.ERROR
+        self.shutdown_ms = (perf_counter() - started) * 1000
+        self._emit(EventType.RUNTIME_STOPPED, payload={"state": self.state.value})
+        for service in event_services:
+            self._emit(EventType.SERVICE_STOPPED, payload={"service": service.name, "state": ServiceState.STOPPED.value})
+            stopped = service.stop(float(self.config["shutdown_timeout_seconds"]))
+            success = stopped and success
+        self._started.clear()
+        self.state = ServiceState.STOPPED if success else ServiceState.ERROR
+        return success
+
+    def _rollback(self) -> None:
+        for service in reversed(self._started):
+            service.stop(float(self.config["shutdown_timeout_seconds"]))
+        self._started.clear()
+
+    def report(self) -> dict[str, Any]:
+        return {
+            "runtime": self.state.value,
+            "startup_ms": self.startup_ms,
+            "shutdown_ms": self.shutdown_ms,
+            "services": {
+                service.name: {
+                    "state": service.state.value, "required": service.required,
+                    "dependencies": list(service.dependencies), "last_error": service.last_error,
+                    "startup_ms": service.startup_ms, "shutdown_ms": service.shutdown_ms,
+                }
+                for service in self.registry.list()
+            },
+        }
+
+    def _emit(self, event_type, service: Service | None = None, payload=None) -> None:
+        bus = self.event_bus
+        if bus is None:
+            return
+        data = dict(payload or {})
+        if service:
+            data.update({"service": service.name, "state": service.state.value})
+        bus.emit(event_type, "runtime", data)
+
+
+class ApplicationRuntime(IsabellaRuntime):
+    """Concrete lifecycle adapters shared by GUI and CLI entry points."""
+
+    def __init__(self, config: dict[str, Any], mode: str = "gui", qt_app=None) -> None:
+        if mode not in {"gui", "cli"}:
+            raise ValueError("Runtime mode must be gui or cli")
+        config = dict(config)
+        enabled = set(config["enabled_services"])
+        if mode == "cli":
+            enabled.discard("HUD")
+        config["enabled_services"] = list(enabled)
+        super().__init__(config)
+        self.mode = mode
+        self.qt_app = qt_app
+        self.app = None
+        self.brain = None
+        self.controller = None
+        self.window = None
+        self._register_application_services()
+
+    @classmethod
+    def from_config(cls, path: Path | None = None, **kwargs) -> "ApplicationRuntime":
+        return cls(load_runtime_config(path), **kwargs)
+
+    def _register_application_services(self) -> None:
+        self.register(Service("Core", required=True, start_hook=self._start_core, stop_hook=self._stop_core, health_hook=self._health_core))
+        self.register(Service("Event Bus", ("Core",), required=True, start_hook=self._start_event_bus, stop_hook=self._stop_event_bus, health_hook=self._health_event_bus))
+        self.register(Service("Intelligence", ("Event Bus",), start_hook=self._start_intelligence, stop_hook=self._stop_intelligence, health_hook=self._health_intelligence))
+        self.register(Service("Security", ("Intelligence",), start_hook=lambda: bool(self.brain.security), health_hook=lambda: bool(self.brain and self.brain.security)))
+        self.register(Service("Memory", ("Intelligence",), start_hook=lambda: bool(self.brain.memory), health_hook=self._health_memory))
+        self.register(Service("Context", ("Memory",), start_hook=lambda: bool(self.brain.context), health_hook=self._health_context))
+        self.register(Service("Skills", ("Security",), start_hook=lambda: bool(self.brain.registry), health_hook=lambda: bool(self.brain and self.brain.registry and self.brain.registry.list())))
+        self.register(Service("Vision", ("Context",), start_hook=lambda: bool(self.brain.vision), health_hook=self._health_vision))
+        self.register(Service("Diagnostics", ("Intelligence", "Security", "Memory"), start_hook=self._start_diagnostics, stop_hook=self._stop_diagnostics, health_hook=self._health_diagnostics))
+        if self.mode == "gui":
+            self.register(Service("HUD", ("Core", "Intelligence"), start_hook=self._start_hud, stop_hook=self._stop_hud, health_hook=self._health_hud, bounded=False))
+            voice_dependencies = ("Core", "Intelligence", "HUD")
+        else:
+            voice_dependencies = ("Core", "Intelligence")
+        self.register(Service("Voice Input", voice_dependencies, start_hook=self._start_voice, stop_hook=self._stop_voice, health_hook=self._health_voice))
+        self.register(Service("Voice Output", ("Core",), start_hook=self._start_tts, stop_hook=self._stop_tts, health_hook=self._health_tts))
+
+    def _start_core(self):
+        from Isabella.Core.app import IsabellaApp
+        self.app = IsabellaApp()
+        self.app.start()
+        self.event_bus = self.app.event_bus
+        return True
+
+    def _stop_core(self):
+        return self.app.stop_core() if self.app else True
+
+    def _health_core(self):
+        return bool(self.app and getattr(self.app.status, "value", None) == "ONLINE")
+
+    def _start_event_bus(self):
+        self.event_bus = getattr(self.app, "event_bus", None)
+        return self.event_bus is not None
+
+    def _stop_event_bus(self):
+        return self.app.stop_event_bus() if self.app else True
+
+    def _health_event_bus(self):
+        return bool(self.event_bus and getattr(self.event_bus, "_accepting", False))
+
+    def _start_intelligence(self):
+        from Isabella.Intelligence.brain import Brain
+        self.brain = Brain.from_config(event_bus=self.event_bus)
+        return True
+
+    def _stop_intelligence(self):
+        if self.brain:
+            self.brain.shutdown()
+            self.brain = None
+        return True
+
+    def _health_intelligence(self):
+        if not self.brain:
+            return False
+        return ServiceState.ONLINE if self.brain.llm.health_check() else ServiceState.DEGRADED
+
+    def _health_memory(self):
+        status = getattr(getattr(self.brain, "memory", None), "status", "OFFLINE")
+        return ServiceState.ONLINE if status == "ONLINE" else ServiceState.ERROR if status == "ERROR" else ServiceState.DEGRADED
+
+    def _health_context(self):
+        status = getattr(getattr(self.brain, "context", None), "status", "OFFLINE")
+        return ServiceState.ONLINE if status == "ONLINE" else ServiceState.DEGRADED
+
+    def _health_vision(self):
+        vision = getattr(self.brain, "vision", None)
+        if not vision:
+            return ServiceState.ERROR
+        capabilities = vision.health_check(check_camera=False)
+        return ServiceState.ONLINE if capabilities.get("screen") else ServiceState.DEGRADED
+
+    def _start_diagnostics(self):
+        if not self.brain or not self.brain.diagnostics:
+            return False
+        self.brain.diagnostics.bind(app=self.app, brain=self.brain, event_bus=self.event_bus, runtime=self)
+        return True
+
+    def _stop_diagnostics(self):
+        diagnostics = getattr(self.brain, "diagnostics", None)
+        return diagnostics.shutdown() if diagnostics else True
+
+    def _health_diagnostics(self):
+        return bool(self.brain and self.brain.diagnostics)
+
+    def _start_hud(self):
+        from PySide6.QtWidgets import QApplication
+        from Isabella.Interface.controller import InterfaceController
+        from Isabella.Interface.hud import IsabellaHUD
+        self.qt_app = self.qt_app or QApplication.instance() or QApplication([])
+        self.controller = InterfaceController(self.app, self.brain)
+        self.controller.managed_by_runtime = True
+        self.window = IsabellaHUD(self.controller)
+        self.window.show()
+        self.controller.start_services(start_backends=False, run_health_check=False)
+        return True
+
+    def _stop_hud(self):
+        if self.controller:
+            self.controller.shutdown()
+        if self.window:
+            self.window.close()
+        self.controller = None
+        self.window = None
+        return True
+
+    def _health_hud(self):
+        return bool(self.window and self.window.isVisible())
+
+    def _voice_callback(self, command: str) -> None:
+        if not self.accepting_commands:
+            return
+        if self.controller:
+            self.controller.voice_command_received.emit(command)
+        elif self.brain:
+            self._display_response(self.brain.process(command, input_source="voice"), allow_confirmation=False)
+
+    def _start_voice(self):
+        started = bool(self.app and self.app.start_voice(self._voice_callback))
+        if self.controller:
+            self.controller.update_subsystem("VOICE INPUT", "ONLINE" if started else "ERROR")
+        return started
+
+    def _stop_voice(self):
+        return self.app.stop_voice() if self.app else True
+
+    def _health_voice(self):
+        listener = getattr(self.app, "voice_listener", None)
+        return bool(listener and getattr(listener, "is_running", False))
+
+    def _start_tts(self):
+        callback = self.controller.tts_speaking_received.emit if self.controller else None
+        started = bool(self.app and self.app.start_tts(state_callback=callback))
+        if self.controller:
+            self.controller.update_subsystem("VOICE OUTPUT", "ONLINE" if started else "ERROR")
+        return started
+
+    def _stop_tts(self):
+        return self.app.stop_tts() if self.app else True
+
+    def _health_tts(self):
+        tts = getattr(self.app, "tts_manager", None)
+        return bool(tts and tts.health_check())
+
+    def start(self) -> bool:
+        success = super().start()
+        self._print_startup_report()
+        return success
+
+    def wait(self) -> int:
+        if self.mode == "gui":
+            return self.qt_app.exec() if self.qt_app else 1
+        return self._cli_loop()
+
+    def _cli_loop(self) -> int:
+        voice = self.registry.get("Voice Input").state.value
+        tts = self.registry.get("Voice Output").state.value
+        print(f"Entrada por voz: {voice}. Saída por voz: {tts}. Digite um comando ou 'sair'.")
+        while self.accepting_commands:
+            try:
+                text = input("\nVocê:\n").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if text.casefold() == "sair":
+                break
+            if text:
+                self._display_response(self.brain.process(text), allow_confirmation=True)
+        return 0
+
+    def _display_response(self, response, allow_confirmation: bool) -> None:
+        from Isabella.Intelligence.models import Intent
+        if response.response_type == Intent.CONVERSATION:
+            print(f"\nISABELLA:\n{response.message}")
+            self.app.speak(response.message)
+            return
+        print(f"\n[ROUTER] {response.response_type.value}")
+        for result in response.skill_results:
+            print(f"[SKILL] {result.skill_id}\n[STATUS] {result.status}\n\nISABELLA:\n{result.message}")
+            if result.status != "confirmation_required":
+                continue
+            if not allow_confirmation:
+                print("Confirme ações críticas pelo modo texto.")
+                continue
+            answer = input("Confirmar esta ação? (sim/não) ").strip().casefold()
+            confirmation_id = result.data["confirmation_id"]
+            if answer == "sim":
+                request = self.brain.pending_confirmation(confirmation_id)
+                confirmed = self.brain.confirm(request, source="cli") if request else None
+                if confirmed:
+                    print(f"[STATUS] {confirmed.status}\n\nISABELLA:\n{confirmed.message}")
+                    self.app.speak(confirmed.message)
+            else:
+                self.brain.cancel_confirmation(confirmation_id)
+                print("[STATUS] cancelled\n\nISABELLA:\nAção cancelada.")
+        self.app.speak(response.message)
+
+    def _print_startup_report(self) -> None:
+        print(f"\nISABELLA {self.state.value}")
+        for service in self.registry.list():
+            print(f"{service.name.upper():<15} {service.state.value}")

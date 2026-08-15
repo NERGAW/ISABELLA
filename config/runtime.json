@@ -1,0 +1,20 @@
+{
+  "startup_timeout_seconds": 15,
+  "shutdown_timeout_seconds": 5,
+  "restart_attempts": 2,
+  "restart_cooldown_seconds": 0.25,
+  "enabled_services": [
+    "Core",
+    "Event Bus",
+    "Intelligence",
+    "Security",
+    "Memory",
+    "Context",
+    "Skills",
+    "Vision",
+    "Diagnostics",
+    "HUD",
+    "Voice Input",
+    "Voice Output"
+  ]
+}

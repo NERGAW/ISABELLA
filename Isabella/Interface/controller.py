@@ -40,6 +40,7 @@ class InterfaceController(QObject):
         self._active_correlation_id: str | None = None
         self._pending_confirmation = None
         self.event_bus = getattr(app, "event_bus", None)
+        self.managed_by_runtime = False
         diagnostics = getattr(brain, "diagnostics", None)
         if diagnostics:
             diagnostics.bind(app=app, brain=brain, controller=self, event_bus=self.event_bus)
@@ -63,7 +64,7 @@ class InterfaceController(QObject):
         status = "ERROR" if event.type == EventType.VISION_CAPTURE_FAILED.value else "ONLINE"
         self.subsystem_changed.emit("VISION", status)
 
-    def start_services(self) -> None:
+    def start_services(self, start_backends: bool = True, run_health_check: bool = True) -> None:
         self.update_subsystem("CORE", "ONLINE")
         self.update_subsystem("SKILLS", "ONLINE" if self.brain.registry else "DEGRADED")
         self.update_subsystem("PLANNER", "ONLINE")
@@ -76,14 +77,15 @@ class InterfaceController(QObject):
         if context:
             context.refresh_active_window(force=True)
             context.refresh_devices()
-        voice_ok = self.app.start_voice(self.voice_command_received.emit)
+        voice_ok = self.app.start_voice(self.voice_command_received.emit) if start_backends else bool(self.app.voice_listener)
         self.update_subsystem("VOICE INPUT", "ONLINE" if voice_ok else "DEGRADED")
         if context:
             context.set("voice_state", UIState.LISTENING.value if voice_ok else UIState.ERROR.value)
             context.set_system_state("HUD", "ONLINE")
-        tts_ok = self.app.start_tts(state_callback=self.tts_speaking_received.emit)
+        tts_ok = self.app.start_tts(state_callback=self.tts_speaking_received.emit) if start_backends else bool(self.app.tts_manager)
         self.update_subsystem("VOICE OUTPUT", "ONLINE" if tts_ok else "DEGRADED")
-        self._start_health_check()
+        if run_health_check:
+            self._start_health_check()
         self.add_message(MessageRole.SYSTEM, "Interface pronta.", MessageType.STATUS)
         LOGGER.info("started")
         if context:
@@ -264,7 +266,8 @@ class InterfaceController(QObject):
             self.event_bus.unsubscribe("vision.*", self._on_vision_event)
         self.thread_pool.clear()
         self.thread_pool.waitForDone(5000)
-        shutdown = getattr(self.brain, "shutdown", None)
-        if shutdown:
-            shutdown()
-        self.app.shutdown()
+        if not self.managed_by_runtime:
+            shutdown = getattr(self.brain, "shutdown", None)
+            if shutdown:
+                shutdown()
+            self.app.shutdown()

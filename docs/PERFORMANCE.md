@@ -17,6 +17,20 @@ hardware, rede e duração da frase.
 | Ollama health check | 2.045,30 ms, assíncrono |
 | Serviço pronto, incluindo health check | 2.313–2.416 ms aquecido |
 
+### Runtime (Fase 14)
+
+Teste real GUI offscreen com Core, Ollama, TTS, Voice, HUD e todos os serviços:
+startup de 4.693,33 ms e shutdown de 291,12 ms, retornando ao mesmo total de
+threads Python. A linha de base anterior de serviço pronto era 2.313–2.416 ms
+aquecida e mantinha o health check do Ollama assíncrono; a medição nova inclui o
+health check síncrono usado para classificar o startup e a inicialização fria do
+Edge TTS (1.380,24 ms nesta execução), portanto não é uma comparação direta de
+overhead.
+
+Em 50 ciclos sintéticos com seis serviços sem I/O, o coordenador isolado mediu
+1,324 ms para startup e 1,198 ms para shutdown em média. Este é o overhead
+atribuível à ordenação, estados, threads limitadas e eventos do Runtime.
+
 Antes da otimização, Edge e SAPI eram carregados sempre: 1.429,84 + 416,43 ms.
 Agora somente o Edge principal inicia; o SAPI é carregado sob demanda. A carga
 fria observada do TTS caiu de 1.846,27 para 1.245,31 ms no log comparável
@@ -104,4 +118,3 @@ Planner, Skill e total. `tts_ms=queued` indica corretamente que a reprodução �
 assíncrona; as métricas completas de TTS são registradas pelo serviço ao terminar.
 Logs ruidosos de `asyncio`, `comtypes`, `httpcore`, `httpx`, `urllib3` e
 `faster_whisper` ficam em WARNING.
-

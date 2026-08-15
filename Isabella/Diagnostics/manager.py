@@ -39,13 +39,14 @@ def load_diagnostics_config(path: Path | None = None) -> dict[str, Any]:
 
 
 class DiagnosticsManager:
-    def __init__(self, config: dict[str, Any], *, app=None, brain=None, controller=None, event_bus=None) -> None:
+    def __init__(self, config: dict[str, Any], *, app=None, brain=None, controller=None, event_bus=None, runtime=None) -> None:
         self.config = config
         self.enabled = bool(config["enabled"])
         self.app = app
         self.brain = brain
         self.controller = controller
         self.event_bus = event_bus or getattr(app, "event_bus", None)
+        self.runtime = runtime
         self.failure_history: deque[FailureRecord] = deque(maxlen=int(config["failure_history_limit"]))
         self.check_latencies_ms: deque[float] = deque(maxlen=200)
         self._statuses: dict[Subsystem, HealthStatus] = {}
@@ -58,7 +59,7 @@ class DiagnosticsManager:
     def from_config(cls, path: Path | None = None, **components) -> "DiagnosticsManager":
         return cls(load_diagnostics_config(path), **components)
 
-    def bind(self, *, app=None, brain=None, controller=None, event_bus=None) -> None:
+    def bind(self, *, app=None, brain=None, controller=None, event_bus=None, runtime=None) -> None:
         if app is not None:
             self.app = app
         if brain is not None:
@@ -67,6 +68,8 @@ class DiagnosticsManager:
             self.controller = controller
         if event_bus is not None:
             self.event_bus = event_bus
+        if runtime is not None:
+            self.runtime = runtime
 
     def check(self, detailed: bool = False, expensive: bool = False) -> DiagnosticsReport:
         started = perf_counter()
@@ -82,7 +85,11 @@ class DiagnosticsManager:
         def probe():
             if subsystem is Subsystem.CORE:
                 value = getattr(getattr(app, "status", None), "value", None)
-                return (HealthStatus.ONLINE if value == "ONLINE" else HealthStatus.OFFLINE if value == "OFFLINE" else HealthStatus.UNKNOWN), {"state": value or "UNKNOWN"}
+                runtime_state = getattr(getattr(self.runtime, "state", None), "value", "UNKNOWN")
+                runtime_services = {
+                    name: item["state"] for name, item in self.runtime.report()["services"].items()
+                } if self.runtime else {}
+                return (HealthStatus.ONLINE if value == "ONLINE" else HealthStatus.OFFLINE if value == "OFFLINE" else HealthStatus.UNKNOWN), {"state": value or "UNKNOWN", "runtime_state": runtime_state, "runtime_services": runtime_services}
             if subsystem is Subsystem.LLM:
                 llm = getattr(brain, "llm", None)
                 if llm is None:

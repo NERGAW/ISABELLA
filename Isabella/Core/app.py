@@ -133,6 +133,37 @@ class IsabellaApp:
     def speak(self, text: str, correlation_id: str | None = None) -> bool:
         return bool(self.tts_manager and self.tts_manager.speak(text, correlation_id=correlation_id))
 
+    def stop_tts(self) -> bool:
+        if not self.tts_manager:
+            return True
+        stopped = self.tts_manager.shutdown()
+        self.tts_manager = None
+        return stopped
+
+    def stop_voice(self) -> bool:
+        if not self.voice_listener:
+            return True
+        stopped = self.voice_listener.stop()
+        self.voice_listener = None
+        return stopped
+
+    def stop_core(self) -> bool:
+        if self.status == IsabellaStatus.OFFLINE:
+            return True
+        self._set_status(IsabellaStatus.STOPPING)
+        if self.event_bus:
+            from Isabella.Events import EventType
+            self.event_bus.emit(EventType.SYSTEM_STOPPING, "core")
+        self._set_status(IsabellaStatus.OFFLINE)
+        return True
+
+    def stop_event_bus(self) -> bool:
+        if not self.event_bus:
+            return True
+        stopped = self.event_bus.shutdown()
+        self.event_bus = None
+        return stopped
+
     def shutdown(self) -> None:
         """Shut down the application cleanly."""
         if self.status == IsabellaStatus.OFFLINE:
@@ -141,20 +172,18 @@ class IsabellaApp:
         self._set_status(IsabellaStatus.STOPPING)
         if self.event_bus:
             from Isabella.Events import EventType
-
             self.event_bus.emit(EventType.SYSTEM_STOPPING, "core")
         if self.logger:
             self.logger.info("ISABELLA stopping.")
         if self.tts_manager:
-            stopped = self.tts_manager.shutdown()
+            stopped = self.stop_tts()
             if self.logger:
                 self.logger.info("TTS stopped=%s", stopped)
         if self.voice_listener:
-            stopped = self.voice_listener.stop()
+            stopped = self.stop_voice()
             if self.logger:
                 self.logger.info("Voice input stopped=%s", stopped)
         self._set_status(IsabellaStatus.OFFLINE)
         if self.logger:
             self.logger.info("ISABELLA offline.")
-        if self.event_bus:
-            self.event_bus.shutdown()
+        self.stop_event_bus()
