@@ -1,4 +1,6 @@
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 
 from Isabella.Core.app import IsabellaApp, IsabellaStatus
 from tests.test_config import VALID_CONFIG
@@ -36,3 +38,15 @@ def test_shutdown_transitions_through_stopping_to_offline(tmp_path):
         IsabellaStatus.STOPPING,
         IsabellaStatus.OFFLINE,
     ]
+
+
+def test_file_logging_is_bounded_by_rotation(tmp_path):
+    app = make_app(tmp_path)
+    app.start()
+    handler = next(
+        item for item in logging.getLogger().handlers
+        if isinstance(item, RotatingFileHandler)
+    )
+    assert handler.maxBytes == 5 * 1024 * 1024
+    assert handler.backupCount == 3
+    app.shutdown()

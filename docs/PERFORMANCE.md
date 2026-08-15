@@ -108,8 +108,8 @@ do fechamento. Não restaram processos Python nem streams presos.
 | `av` | decodificação do áudio em memória |
 | `pytest` (dev) | testes automatizados |
 
-`pycaw` foi removido por não possuir import ou referência. `av` foi declarado
-diretamente, pois o código o importa e não deve depender de instalação transitiva.
+`pycaw` é carregado sob demanda pela Skill `system.set_volume`. `av` foi
+declarado diretamente, pois o código o importa e não deve depender de instalação transitiva.
 
 ## Observabilidade
 

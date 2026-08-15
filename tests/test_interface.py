@@ -144,19 +144,30 @@ def test_hud_inserts_and_limits_visible_messages():
 
 
 def test_backend_start_contract_does_not_need_to_return_itself(monkeypatch):
-    """The production start method initializes in place and returns None."""
+    """The compatibility GUI entry point delegates lifecycle to Runtime."""
     from Isabella.Interface import hud
 
-    class StartingApp(FakeApp):
-        def start(self):
-            return None
+    class FakeRuntime:
+        shutdown_called = False
 
-    backend = StartingApp()
-    monkeypatch.setattr(hud, "IsabellaApp", lambda: backend)
-    monkeypatch.setattr(hud.Brain, "from_config", lambda: FakeBrain())
-    monkeypatch.setattr(QT_APP, "exec", lambda: 0)
+        @classmethod
+        def from_config(cls, mode):
+            assert mode == "gui"
+            return cls()
+
+        def start(self):
+            return True
+
+        def wait(self):
+            return 0
+
+        def shutdown(self):
+            self.shutdown_called = True
+            return True
+
+    import Isabella.Runtime
+    monkeypatch.setattr(Isabella.Runtime, "ApplicationRuntime", FakeRuntime)
     assert hud.run_gui() == 0
-    assert hasattr(backend, "voice_callback")
 
 
 def test_diagnostics_reports_bounded_runtime_snapshot():

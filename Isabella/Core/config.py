@@ -11,9 +11,6 @@ REQUIRED_FIELDS = {
     "name",
     "full_name",
     "acronym",
-    "language",
-    "wake_word",
-    "wake_word_aliases",
     "debug",
 }
 

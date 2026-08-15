@@ -1,6 +1,7 @@
 """Logging setup for the ISABELLA core."""
 
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import sys
 
@@ -24,7 +25,9 @@ def setup_logging(log_path: Path | None = None, debug: bool = False) -> logging.
     formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
     stream_handler = logging.StreamHandler(sys.__stdout__)
     stream_handler.setFormatter(formatter)
-    file_handler = logging.FileHandler(destination, encoding="utf-8")
+    file_handler = RotatingFileHandler(
+        destination, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8",
+    )
     file_handler.setFormatter(formatter)
 
     root_logger.addHandler(stream_handler)

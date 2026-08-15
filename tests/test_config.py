@@ -9,9 +9,6 @@ VALID_CONFIG = {
     "name": "ISABELLA",
     "full_name": "I.S.A.B.E.L.L.A.",
     "acronym": "Intelligent System for Adaptive Behavior, Environment, Learning, Logic and Assistance",
-    "language": "pt-BR",
-    "wake_word": "isabella",
-    "wake_word_aliases": ["isabella", "isabela"],
     "debug": True,
 }
 

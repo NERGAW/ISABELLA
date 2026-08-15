@@ -7,7 +7,7 @@ from collections import deque
 from time import perf_counter
 from typing import Any
 
-from .base import RiskLevel, SkillDefinition, SkillResult
+from .base import SkillDefinition, SkillResult
 from Isabella.Events import EventType
 from Isabella.Security import PolicyDecision, SecurityPolicyEngine
 
