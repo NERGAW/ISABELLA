@@ -31,12 +31,13 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.event_bus = event_bus
         self.security = security or getattr(registry, "policy_engine", None)
         self.diagnostics = diagnostics
+        self.mcp = mcp
         self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory
@@ -68,6 +69,8 @@ class Brain:
             event_bus=event_bus,
             security=security,
         )
+        from Isabella.MCP import MCPManager
+        brain.mcp = MCPManager.from_config(skill_registry=registry, event_bus=event_bus)
         diagnostics = DiagnosticsManager.from_config(brain=brain, event_bus=event_bus)
         brain.diagnostics = diagnostics
         registry.register(create_diagnostics_skill(diagnostics))
@@ -364,6 +367,8 @@ class Brain:
         return sum(self.latencies_ms) / len(self.latencies_ms) if self.latencies_ms else 0.0
 
     def shutdown(self) -> None:
+        if self.mcp:
+            self.mcp.shutdown()
         if self.diagnostics:
             self.diagnostics.shutdown()
         if self.vision:

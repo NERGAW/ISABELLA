@@ -62,6 +62,14 @@ class FakeSecurity:
         return 0
 
 
+class FakeMCP:
+    def health_check(self):
+        return {
+            "enabled": True, "registered_servers": 0, "connected_servers": 0,
+            "available_tools": 0, "recent_failures": 0, "unhealthy_servers": [],
+        }
+
+
 class FakeBus:
     def __init__(self, failed=0, dropped=0):
         self.failed = failed
@@ -101,6 +109,7 @@ def components(**changes):
         registry=SimpleNamespace(list=lambda: [1, 2]), memory=memory,
         context=SimpleNamespace(status="ONLINE"), vision=changes.get("vision", FakeVision()),
         security=changes.get("security", FakeSecurity()),
+        mcp=changes.get("mcp", FakeMCP()),
     )
     controller = SimpleNamespace(
         state=SimpleNamespace(value="IDLE"),
@@ -122,6 +131,7 @@ def test_all_subsystems_and_metrics_are_reported():
     assert report.statuses["SECURITY"].details == {
         "policy_loaded": True, "pending_confirmations": 2, "expired_confirmations": 1,
     }
+    assert report.statuses["MCP"].status is HealthStatus.ONLINE
     assert report.metrics.process_memory_mb > 0
     assert report.metrics.thread_count > 0
     assert report.summary == "Todos os sistemas principais estão operacionais."

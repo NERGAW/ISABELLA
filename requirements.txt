@@ -10,3 +10,4 @@ pyttsx3
 PySide6
 av
 opencv-python
+mcp>=2,<3

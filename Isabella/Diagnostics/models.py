@@ -32,6 +32,7 @@ class Subsystem(str, Enum):
     VISION = "VISION"
     EVENT_BUS = "EVENT BUS"
     SECURITY = "SECURITY"
+    MCP = "MCP"
 
 
 @dataclass(frozen=True)
@@ -82,4 +83,3 @@ class DiagnosticsReport:
             "metrics": asdict(self.metrics), "summary": self.summary,
             "detailed": self.detailed, "generated_at": self.generated_at,
         }
-

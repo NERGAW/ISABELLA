@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "servers": [],
+  "connection_timeout_seconds": 10,
+  "tool_timeout_seconds": 30,
+  "auto_connect": false
+}

@@ -163,6 +163,13 @@ class DiagnosticsManager:
                     return HealthStatus.OFFLINE, {"policy_loaded": False}
                 security.expire_pending()
                 return HealthStatus.ONLINE, {"policy_loaded": True, "pending_confirmations": security.pending_count, "expired_confirmations": security.expired_count}
+            if subsystem is Subsystem.MCP:
+                mcp = getattr(brain, "mcp", None)
+                if mcp is None:
+                    return HealthStatus.OFFLINE, {"enabled": False, "connected_servers": 0, "available_tools": 0, "recent_failures": 0}
+                details = mcp.health_check()
+                status = HealthStatus.DEGRADED if details.get("unhealthy_servers") or details.get("recent_failures") else HealthStatus.ONLINE
+                return status, details
             return HealthStatus.UNKNOWN, {}
 
         result = health(subsystem, probe)

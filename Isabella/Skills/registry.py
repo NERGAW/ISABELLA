@@ -45,6 +45,9 @@ class SkillRegistry:
             raise ValueError(f"Skill already registered: {definition.id}")
         self._skills[definition.id] = definition
 
+    def unregister(self, skill_id: str) -> bool:
+        return self._skills.pop(skill_id, None) is not None
+
     def get(self, skill_id: str) -> SkillDefinition | None:
         return self._skills.get(skill_id)
 
