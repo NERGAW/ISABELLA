@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "provider": "duckduckgo_html",
+  "search_endpoint": "https://html.duckduckgo.com/html/",
+  "timeout_seconds": 10,
+  "max_results": 3,
+  "cache_ttl_seconds": 60,
+  "cache_max_entries": 32,
+  "max_page_bytes": 1000000,
+  "max_content_characters": 12000,
+  "user_agent": "ISABELLA/1.0 research client"
+}

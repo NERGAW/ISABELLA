@@ -214,6 +214,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.register(Service("Context", ("Memory",), start_hook=lambda: bool(self.brain.context), health_hook=self._health_context))
         self.register(Service("Skills", ("Security",), start_hook=lambda: bool(self.brain.registry), health_hook=lambda: bool(self.brain and self.brain.registry and self.brain.registry.list())))
         self.register(Service("MCP", ("Skills", "Security"), start_hook=self._start_mcp, stop_hook=self._stop_mcp, health_hook=self._health_mcp))
+        self.register(Service("Research", ("Intelligence",), start_hook=self._start_research, stop_hook=self._stop_research, health_hook=self._health_research))
         self.register(Service("Vision", ("Context",), start_hook=lambda: bool(self.brain.vision), health_hook=self._health_vision))
         self.register(Service("Diagnostics", ("Intelligence", "Security", "Memory"), start_hook=self._start_diagnostics, stop_hook=self._stop_diagnostics, health_hook=self._health_diagnostics))
         if self.mode == "gui":
@@ -289,6 +290,17 @@ class ApplicationRuntime(IsabellaRuntime):
             return ServiceState.ERROR
         details = self.brain.mcp.health_check()
         return ServiceState.DEGRADED if details["unhealthy_servers"] else ServiceState.ONLINE
+
+    def _start_research(self):
+        return bool(self.brain and self.brain.research)
+
+    def _stop_research(self):
+        return self.brain.research.shutdown() if self.brain and self.brain.research else True
+
+    def _health_research(self):
+        if not self.brain or not self.brain.research:
+            return ServiceState.ERROR
+        return ServiceState.ONLINE if self.brain.research.health_check()["provider_configured"] else ServiceState.DEGRADED
 
     def _start_diagnostics(self):
         if not self.brain or not self.brain.diagnostics:

@@ -70,6 +70,14 @@ class FakeMCP:
         }
 
 
+class FakeResearch:
+    def health_check(self):
+        return {
+            "enabled": True, "provider": "fake", "provider_configured": True,
+            "cache_entries": 0, "recent_failures": 0,
+        }
+
+
 class FakeBus:
     def __init__(self, failed=0, dropped=0):
         self.failed = failed
@@ -110,6 +118,7 @@ def components(**changes):
         context=SimpleNamespace(status="ONLINE"), vision=changes.get("vision", FakeVision()),
         security=changes.get("security", FakeSecurity()),
         mcp=changes.get("mcp", FakeMCP()),
+        research=changes.get("research", FakeResearch()),
     )
     controller = SimpleNamespace(
         state=SimpleNamespace(value="IDLE"),
@@ -132,6 +141,7 @@ def test_all_subsystems_and_metrics_are_reported():
         "policy_loaded": True, "pending_confirmations": 2, "expired_confirmations": 1,
     }
     assert report.statuses["MCP"].status is HealthStatus.ONLINE
+    assert report.statuses["RESEARCH"].status is HealthStatus.ONLINE
     assert report.metrics.process_memory_mb > 0
     assert report.metrics.thread_count > 0
     assert report.summary == "Todos os sistemas principais estão operacionais."

@@ -33,6 +33,7 @@ class Subsystem(str, Enum):
     EVENT_BUS = "EVENT BUS"
     SECURITY = "SECURITY"
     MCP = "MCP"
+    RESEARCH = "RESEARCH"
 
 
 @dataclass(frozen=True)

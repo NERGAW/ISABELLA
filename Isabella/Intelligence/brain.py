@@ -31,13 +31,14 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.event_bus = event_bus
         self.security = security or getattr(registry, "policy_engine", None)
         self.diagnostics = diagnostics
         self.mcp = mcp
+        self.research = research
         self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory
@@ -71,6 +72,8 @@ class Brain:
         )
         from Isabella.MCP import MCPManager
         brain.mcp = MCPManager.from_config(skill_registry=registry, event_bus=event_bus)
+        from Isabella.Research import ResearchManager
+        brain.research = ResearchManager.from_config(llm=brain.llm, event_bus=event_bus)
         diagnostics = DiagnosticsManager.from_config(brain=brain, event_bus=event_bus)
         brain.diagnostics = diagnostics
         registry.register(create_diagnostics_skill(diagnostics))
@@ -138,8 +141,10 @@ class Brain:
         contextual_request = contextual_request or vision_request
         router_started = perf_counter()
         intent = Intent.SINGLE_SKILL if contextual_request else (intent or self.router.route(text))
+        if intent == Intent.CONVERSATION and self.research and self.research.should_search(text):
+            intent = Intent.RESEARCH
         router_ms = router_ms if router_ms is not None else (perf_counter() - router_started) * 1000
-        llm_ms = planner_ms = skill_ms = 0.0
+        llm_ms = planner_ms = skill_ms = research_ms = 0.0
         if intent == Intent.CONVERSATION:
             stage_started = perf_counter()
             try:
@@ -159,6 +164,14 @@ class Brain:
                 message = "O provedor de inteligência está indisponível no momento."
             llm_ms = (perf_counter() - stage_started) * 1000
             result = BrainResponse(intent, message)
+        elif intent == Intent.RESEARCH:
+            stage_started = perf_counter()
+            if self.research:
+                research_result = self.research.search(text)
+                result = BrainResponse(intent, research_result.answer, sources=research_result.sources)
+            else:
+                result = BrainResponse(intent, "A pesquisa web está indisponível no momento.")
+            research_ms = (perf_counter() - stage_started) * 1000
         elif intent == Intent.SINGLE_SKILL:
             request = contextual_request or self.router.skill_request(text)
             if request.skill == "applications.open" and normalize(str(request.arguments.get("name", ""))) in {"meu navegador", "navegador"}:
@@ -190,8 +203,8 @@ class Brain:
         self.latencies_ms.append(latency)
         LOGGER.info("response_type=%s latency_ms=%.3f", result.response_type.value, latency)
         PERFORMANCE.debug(
-            "request_id=%s input_source=%s router_ms=%.3f llm_ms=%.3f planner_ms=%.3f skill_ms=%.3f tts_ms=queued total_ms=%.3f",
-            request_id, input_source, router_ms, llm_ms, planner_ms, skill_ms, latency,
+            "request_id=%s input_source=%s router_ms=%.3f llm_ms=%.3f research_ms=%.3f planner_ms=%.3f skill_ms=%.3f tts_ms=queued total_ms=%.3f",
+            request_id, input_source, router_ms, llm_ms, research_ms, planner_ms, skill_ms, latency,
         )
         self._remember_exchange(text, result.message)
         if self.context:
@@ -367,6 +380,8 @@ class Brain:
         return sum(self.latencies_ms) / len(self.latencies_ms) if self.latencies_ms else 0.0
 
     def shutdown(self) -> None:
+        if self.research:
+            self.research.shutdown()
         if self.mcp:
             self.mcp.shutdown()
         if self.diagnostics:

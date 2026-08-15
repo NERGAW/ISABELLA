@@ -31,6 +31,7 @@ class BrainWorker(QRunnable):
             router_ms = (perf_counter() - router_started) * 1000
             phase = {
                 Intent.CONVERSATION: "THINKING",
+                Intent.RESEARCH: "SEARCHING",
                 Intent.SINGLE_SKILL: "EXECUTING",
                 Intent.MULTI_STEP: "PLANNING",
             }[intent]

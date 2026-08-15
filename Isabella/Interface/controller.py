@@ -49,6 +49,7 @@ class InterfaceController(QObject):
         if self.event_bus:
             self.event_bus.subscribe("tts.*", self._on_tts_event)
             self.event_bus.subscribe("vision.*", self._on_vision_event)
+            self.event_bus.subscribe("research.*", self._on_research_event)
 
     def _on_tts_event(self, event) -> None:
         if event.type == EventType.TTS_STARTED.value:
@@ -64,6 +65,10 @@ class InterfaceController(QObject):
         status = "ERROR" if event.type == EventType.VISION_CAPTURE_FAILED.value else "ONLINE"
         self.subsystem_changed.emit("VISION", status)
 
+    def _on_research_event(self, event) -> None:
+        status = "ERROR" if event.type == EventType.RESEARCH_FAILED.value else "ONLINE"
+        self.subsystem_changed.emit("RESEARCH", status)
+
     def start_services(self, start_backends: bool = True, run_health_check: bool = True) -> None:
         self.update_subsystem("CORE", "ONLINE")
         self.update_subsystem("SKILLS", "ONLINE" if self.brain.registry else "DEGRADED")
@@ -74,6 +79,9 @@ class InterfaceController(QObject):
         self.update_subsystem("CONTEXT", getattr(context, "status", "OFFLINE"))
         vision = getattr(self.brain, "vision", None)
         self.update_subsystem("VISION", getattr(vision, "status", "OFFLINE"))
+        research = getattr(self.brain, "research", None)
+        research_health = research.health_check() if research else {}
+        self.update_subsystem("RESEARCH", "ONLINE" if research_health.get("provider_configured") else "DEGRADED")
         if context:
             context.refresh_active_window(force=True)
             context.refresh_devices()
@@ -264,6 +272,7 @@ class InterfaceController(QObject):
         if self.event_bus:
             self.event_bus.unsubscribe("tts.*", self._on_tts_event)
             self.event_bus.unsubscribe("vision.*", self._on_vision_event)
+            self.event_bus.unsubscribe("research.*", self._on_research_event)
         self.thread_pool.clear()
         self.thread_pool.waitForDone(5000)
         if not self.managed_by_runtime:

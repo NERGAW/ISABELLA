@@ -170,6 +170,13 @@ class DiagnosticsManager:
                 details = mcp.health_check()
                 status = HealthStatus.DEGRADED if details.get("unhealthy_servers") or details.get("recent_failures") else HealthStatus.ONLINE
                 return status, details
+            if subsystem is Subsystem.RESEARCH:
+                research = getattr(brain, "research", None)
+                if research is None:
+                    return HealthStatus.OFFLINE, {"enabled": False}
+                details = research.health_check()
+                status = HealthStatus.ONLINE if details.get("provider_configured") else HealthStatus.DEGRADED
+                return status, details
             return HealthStatus.UNKNOWN, {}
 
         result = health(subsystem, probe)

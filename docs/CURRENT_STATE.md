@@ -1,6 +1,6 @@
 # Estado atual da I.S.A.B.E.L.L.A.
 
-Checkpoint validado em 15/08/2026 após a Fase 16.
+Checkpoint validado em 15/08/2026 após a Fase 17.
 
 ## Arquitetura operacional
 
@@ -20,7 +20,7 @@ Router → Brain → Planner (quando composto) / Skill Registry
   ↓
 Security Policy Engine
   ↓
-Executor allowlisted local / MCP Tool Registry
+Executor allowlisted local / MCP Tool Registry / Research Manager
   ↓
 Context + Memory + Event Bus
   ↓
@@ -40,9 +40,11 @@ LLM podem falhar isoladamente; Core, Skills locais, HUD/CLI e shutdown continuam
 - TTS Francisca Neural com fallback SAPI, cache e fila limitada.
 - HUD PySide6 e CLI compartilhando o mesmo Runtime.
 - Vision sob demanda para tela, janela e câmera sem captura contínua.
-- Diagnostics para 14 subsistemas, métricas e histórico limitado.
+- Diagnostics para 15 subsistemas, métricas e histórico limitado.
 - MCP modular com `stdio` e Streamable HTTP oficiais, desligado de conexões por
   padrão e sempre subordinado ao Security Policy Engine local.
+- Research sob demanda com fontes consultadas, citações, fetch público protegido
+  e cache curto limitado.
 - Logs com rotação de 5 MB e três backups.
 
 ## Auditoria da Fase 15
@@ -76,5 +78,6 @@ TTS remove WAV temporário e SQLite/HTTP/Event Bus têm fechamento explícito.
 
 ## Fora do escopo
 
-Não existem servidores MCP configurados, pesquisa web, reconhecimento facial,
-biometria, Nodes ou contas externas conectadas neste checkpoint.
+Não existem servidores MCP configurados, reconhecimento facial, biometria, Nodes
+ou contas externas conectadas neste checkpoint. Research não realiza login nem
+navegação autônoma complexa.

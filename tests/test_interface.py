@@ -81,7 +81,7 @@ def flush(controller):
 def test_ui_models_expose_all_required_states():
     assert {state.value for state in UIState} == {
         "IDLE", "LISTENING", "TRANSCRIBING", "THINKING", "PLANNING",
-        "EXECUTING", "SPEAKING", "ERROR",
+        "SEARCHING", "EXECUTING", "SPEAKING", "ERROR",
     }
     assert UIMessage(MessageRole.USER, "oi").text == "oi"
 

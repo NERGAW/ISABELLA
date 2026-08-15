@@ -7,6 +7,7 @@ from typing import Any
 
 class Intent(str, Enum):
     CONVERSATION = "conversation"
+    RESEARCH = "research"
     SINGLE_SKILL = "single_skill"
     MULTI_STEP = "multi_step"
 
@@ -83,6 +84,7 @@ class BrainResponse:
     skill_request: SkillRequest | None = None
     plan: Plan | None = None
     skill_results: tuple[Any, ...] = ()
+    sources: tuple[Any, ...] = ()
 
     def __post_init__(self) -> None:
         if self.response_type == Intent.SINGLE_SKILL and not self.skill_request:

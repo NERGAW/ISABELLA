@@ -14,6 +14,11 @@ ACTION_WORDS = (
     "abra", "abre", "abrir", "inicie", "iniciar", "entrar", "usar", "assistir",
     "feche", "fechar", "tire", "capture", "captura", "volume", "deslig", "reinici", "suspend", "diagnost",
 )
+RESEARCH_PATTERNS = (
+    r"\bpesquis\w*\b", r"\bbusque\b", r"\bprocure\b", r"\bconsulte\b",
+    r"\bhoje\b", r"\batual(?:mente)?\b", r"\bultim[oa]s?\b", r"\bnoticias?\b",
+    r"\bversao atual\b", r"\bversao (?:mais )?recente\b", r"\bcom fontes?\b",
+)
 
 
 class Router:
@@ -23,6 +28,12 @@ class Router:
     def route(self, text: str) -> Intent:
         started = perf_counter()
         normalized = self.normalize_text(text)
+        if any(re.search(pattern, normalized) for pattern in RESEARCH_PATTERNS):
+            intent = Intent.RESEARCH
+            latency = (perf_counter() - started) * 1000
+            self.latencies_ms.append(latency)
+            LOGGER.info("input=%r intent=%s latency_ms=%.3f", text, intent.value, latency)
+            return intent
         clauses = [part.strip() for part in re.split(r"\b(?:e depois|depois|e entao|e)\b|,", normalized) if part.strip()]
         action_clauses = sum(self._is_action(clause) for clause in clauses)
         if action_clauses >= 2:
