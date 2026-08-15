@@ -214,6 +214,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.register(Service("Context", ("Memory",), start_hook=lambda: bool(self.brain.context), health_hook=self._health_context))
         self.register(Service("Skills", ("Security",), start_hook=lambda: bool(self.brain.registry), health_hook=lambda: bool(self.brain and self.brain.registry and self.brain.registry.list())))
         self.register(Service("Skill Forge", ("Skills", "Security"), start_hook=self._start_skillforge, stop_hook=self._stop_skillforge, health_hook=self._health_skillforge))
+        self.register(Service("Automations", ("Skills", "Security", "Event Bus"), start_hook=self._start_automations, stop_hook=self._stop_automations, health_hook=self._health_automations))
         self.register(Service("MCP", ("Skills", "Security"), start_hook=self._start_mcp, stop_hook=self._stop_mcp, health_hook=self._health_mcp))
         self.register(Service("Research", ("Intelligence",), start_hook=self._start_research, stop_hook=self._stop_research, health_hook=self._health_research))
         self.register(Service("Vision", ("Context",), start_hook=lambda: bool(self.brain.vision), health_hook=self._health_vision))
@@ -297,6 +298,18 @@ class ApplicationRuntime(IsabellaRuntime):
             return ServiceState.ERROR
         details = self.brain.skillforge.diagnostics()
         return ServiceState.DEGRADED if details["failed_validation"] else ServiceState.ONLINE
+
+    def _start_automations(self):
+        return bool(self.brain and self.brain.automations and self.brain.automations.start())
+
+    def _stop_automations(self):
+        return self.brain.automations.shutdown() if self.brain and self.brain.automations else True
+
+    def _health_automations(self):
+        if not self.brain or not self.brain.automations:
+            return ServiceState.ERROR
+        details = self.brain.automations.diagnostics()
+        return ServiceState.ONLINE if details["storage_accessible"] else ServiceState.ERROR
 
     def _stop_mcp(self):
         return self.brain.mcp.shutdown() if self.brain and self.brain.mcp else True

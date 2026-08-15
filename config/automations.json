@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "database_path": "data/automations.db",
+  "default_cooldown_seconds": 5,
+  "max_chain_depth": 5,
+  "max_actions": 8,
+  "max_action_retries": 0
+}

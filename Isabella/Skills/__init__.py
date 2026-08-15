@@ -7,6 +7,7 @@ from .registry import SkillRegistry
 from .system import create_system_skills
 from .vision import create_vision_skills
 from .diagnostics import create_diagnostics_skill
+from .automations import create_automation_skills
 
 
 def build_default_registry(vision_manager=None, event_bus=None, policy_engine=None) -> SkillRegistry:
@@ -33,4 +34,5 @@ __all__ = [
     "build_default_registry",
     "create_vision_skills",
     "create_diagnostics_skill",
+    "create_automation_skills",
 ]

@@ -186,6 +186,13 @@ class DiagnosticsManager:
                 details = forge.diagnostics()
                 status = HealthStatus.DEGRADED if details.get("failed_validation") else HealthStatus.ONLINE
                 return status, details
+            if subsystem is Subsystem.AUTOMATIONS:
+                automations = getattr(brain, "automations", None)
+                if automations is None:
+                    return HealthStatus.UNKNOWN, {"enabled": False, "bound": False}
+                details = automations.diagnostics()
+                status = HealthStatus.ONLINE if details.get("storage_accessible") else HealthStatus.ERROR
+                return status, details
             return HealthStatus.UNKNOWN, {}
 
         result = health(subsystem, probe)
