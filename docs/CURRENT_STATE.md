@@ -1,6 +1,6 @@
 # Estado atual da I.S.A.B.E.L.L.A.
 
-Checkpoint validado em 15/08/2026 após a Fase 22.
+Checkpoint validado em 15/08/2026 após a Fase 23.
 
 ## Arquitetura operacional
 
@@ -55,6 +55,8 @@ LLM podem falhar isoladamente; Core, Skills locais, HUD/CLI e shutdown continuam
   semanal, com SQLite próprio, política de tarefas perdidas e worker eficiente.
 - API REST local em `127.0.0.1`, autenticada por token fora do Git, com rotas
   allowlisted, rate limit, CORS restrito e comandos encaminhados ao Brain/Security.
+- ISABELLA Protocol v1 (`1.0`) transport-agnostic, com envelopes JSON limitados,
+  identidade/capabilities validadas, negociação e gateway seguro para o Registry.
 - Logs com rotação de 5 MB e três backups.
 
 ## Auditoria da Fase 15
@@ -96,3 +98,5 @@ Não há Nodes, cron complexo nem APIs externas. A interpretação temporal acei
 somente formas determinísticas documentadas e pede clarificação em ambiguidades.
 A API não abre firewall, não escuta na internet por padrão e não possui endpoint
 de confirmação remota para ações críticas.
+O Protocol ainda não possui transporte, Nodes reais, Android, MQTT ou hardware;
+eventos internos só podem ser mapeados por allowlist explícita futura.

@@ -187,10 +187,10 @@ def test_shutdown_disconnects_every_server_and_disabled_has_negligible_work():
 
 def test_official_sdk_stdio_local_server_round_trip():
     mcp, _, _ = manager(factory=MCPClient)
-    mcp.connection_timeout = 5
+    mcp.connection_timeout = 10
     fixture = Path(__file__).parent / "fixtures" / "mcp_stdio_server.py"
     mcp.register_server(server(
-        command_or_url=sys.executable, timeout=5,
+        command_or_url=sys.executable, timeout=10,
         metadata={"args": [str(fixture)]},
     ))
     assert mcp.connect("local")

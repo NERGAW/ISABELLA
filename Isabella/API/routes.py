@@ -6,6 +6,7 @@ from typing import Any
 import uuid
 
 from Isabella.Events import EventType
+from Isabella.Protocol.version import PROTOCOL_NAME, PROTOCOL_VERSION
 from .models import APIResponse
 
 
@@ -26,7 +27,7 @@ class APIRoutes:
         self.requests += 1
         self._emit(EventType.API_REQUEST_RECEIVED, request_id, {"method": method, "path": path})
         if path == "/health" and method == "GET":
-            return self._complete(200, APIResponse(True, request_id, "API local operacional.", "ONLINE", {"local": True}))
+            return self._complete(200, APIResponse(True, request_id, "API local operacional.", "ONLINE", {"local": True, "protocol": {"name": PROTOCOL_NAME, "version": PROTOCOL_VERSION, "transport_enabled": False}}))
         if not self.authentication.validate_header(headers.get("authorization")):
             self.auth_failures += 1
             self._emit(EventType.API_AUTH_FAILED, request_id, {"path": path})
@@ -34,6 +35,7 @@ class APIRoutes:
         try:
             if path == "/status" and method == "GET":
                 data = self.runtime.report() if self.runtime else {"runtime": "UNKNOWN"}
+                data["protocol"] = {"name": PROTOCOL_NAME, "version": PROTOCOL_VERSION, "transport_enabled": False}
                 return self._complete(200, APIResponse(True, request_id, "Estado consultado.", "completed", data))
             if path == "/skills" and method == "GET":
                 skills = [
