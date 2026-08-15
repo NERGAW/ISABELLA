@@ -45,6 +45,7 @@ def display_response(app: IsabellaApp, brain: Brain, response: BrainResponse, al
 
 def run_cli() -> None:
     app = IsabellaApp()
+    brain = None
     try:
         app.start()
         brain = Brain.from_config()
@@ -71,6 +72,8 @@ def run_cli() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        if brain:
+            brain.shutdown()
         app.shutdown()
 
 

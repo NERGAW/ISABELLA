@@ -126,8 +126,8 @@ def test_ollama_unavailable(monkeypatch):
     def fail(*args, **kwargs):
         raise requests.ConnectionError("offline")
 
-    monkeypatch.setattr(requests, "request", fail)
     provider = OllamaProvider(CONFIG)
+    monkeypatch.setattr(provider._session, "request", fail)
 
     assert provider.health_check() is False
     with pytest.raises(ProviderUnavailableError):
@@ -150,10 +150,53 @@ def test_brain_survives_ollama_unavailable(monkeypatch):
 def test_invalid_structured_response(monkeypatch):
     provider = OllamaProvider(CONFIG)
     monkeypatch.setattr(
-        requests,
+        provider._session,
         "request",
         lambda *args, **kwargs: FakeResponse({"message": {"content": "not-json"}}),
     )
 
     with pytest.raises(InvalidStructuredResponseError):
         provider.structured_chat("route", {"type": "object"})
+
+
+def test_provider_reuses_session_and_closes_it(monkeypatch):
+    provider = OllamaProvider(CONFIG)
+    calls = []
+    monkeypatch.setattr(provider._session, "request", lambda *args, **kwargs: (calls.append(args) or FakeResponse({})))
+    closed = []
+    monkeypatch.setattr(provider._session, "close", lambda: closed.append(True))
+    assert provider.health_check()
+    assert provider.health_check()
+    provider.close()
+    assert len(calls) == 2
+    assert closed == [True]
+
+
+def test_performance_buffers_are_bounded():
+    router = Router()
+    for _ in range(250):
+        router.route("Abra o Chrome")
+    assert len(router.latencies_ms) == 200
+
+
+def test_fast_path_skips_llm_and_planner():
+    class CountingLLM(FakeLLM):
+        calls = 0
+
+        def chat(self, message):
+            self.calls += 1
+            return super().chat(message)
+
+    llm = CountingLLM()
+    planner = Planner()
+    brain = Brain(llm, planner=planner)
+    brain.process("Abra o Chrome")
+    assert llm.calls == 0
+    assert len(planner.latencies_ms) == 0
+
+
+def test_compound_command_is_the_only_one_using_planner():
+    planner = Planner()
+    brain = Brain(FakeLLM(), planner=planner)
+    brain.process("Abra o Chrome e depois abra o YouTube")
+    assert len(planner.latencies_ms) == 1

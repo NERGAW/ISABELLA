@@ -2,6 +2,7 @@
 
 from enum import Enum
 import logging
+from collections import deque
 from queue import Empty, Full, Queue
 import threading
 from time import perf_counter
@@ -49,7 +50,7 @@ class VoiceListener:
         self._audio_queue: Queue[tuple[np.ndarray, float]] = Queue(maxsize=queue_size)
         self._capture_thread: threading.Thread | None = None
         self._processing_thread: threading.Thread | None = None
-        self.total_latencies_ms: list[float] = []
+        self.total_latencies_ms: deque[float] = deque(maxlen=200)
 
     @classmethod
     def from_config(cls, callback: Callable[[str], object]) -> "VoiceListener":

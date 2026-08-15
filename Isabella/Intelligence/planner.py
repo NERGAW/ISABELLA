@@ -2,6 +2,7 @@
 
 import logging
 import re
+from collections import deque
 from time import perf_counter
 
 from .models import Plan, PlanStep
@@ -15,7 +16,7 @@ class Planner:
     def __init__(self, max_steps: int = 8, router: Router | None = None) -> None:
         self.max_steps = max_steps
         self.router = router or Router()
-        self.latencies_ms: list[float] = []
+        self.latencies_ms: deque[float] = deque(maxlen=200)
 
     def plan(self, text: str) -> Plan:
         started = perf_counter()

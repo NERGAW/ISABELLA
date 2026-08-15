@@ -1,6 +1,6 @@
 """Natural neural TTS with an offline Windows fallback."""
 
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from io import BytesIO
 import asyncio
 import logging
@@ -258,7 +258,7 @@ class TTSManager:
         self._thread: threading.Thread | None = None
         self._active_provider: TTSProvider | None = None
         self.state = "STOPPED"
-        self.metrics: list[dict[str, float | str]] = []
+        self.metrics: deque[dict[str, float | str]] = deque(maxlen=200)
 
     def initialize(self, timeout: float = 5.0) -> bool:
         if self._thread and self._thread.is_alive():
@@ -271,17 +271,9 @@ class TTSManager:
         return self.state != "ERROR"
 
     def _worker(self) -> None:
-        initialized = 0
-        for provider in (self.primary, self.fallback):
-            if provider is None:
-                continue
-            try:
-                started = perf_counter()
-                provider.initialize()
-                LOGGER.info("provider=%s initialization_ms=%.2f", provider.name, (perf_counter() - started) * 1000)
-                initialized += 1
-            except Exception as exc:
-                LOGGER.warning("provider=%s initialization failed error=%s", provider.name, exc)
+        initialized = int(self._initialize_provider(self.primary))
+        if not initialized:
+            initialized = int(self._initialize_provider(self.fallback))
         self.state = "READY" if initialized else "ERROR"
         self._ready_event.set()
         while not self._stop_event.is_set() or not self._queue.empty():
@@ -310,7 +302,7 @@ class TTSManager:
     def _speak_with_fallback(self, text: str) -> None:
         errors = 0
         for provider in (self.primary, self.fallback):
-            if provider is None or not provider.health_check():
+            if provider is None or not self._initialize_provider(provider):
                 continue
             try:
                 self._active_provider = provider
@@ -322,6 +314,21 @@ class TTSManager:
         self.state = "ERROR"
         if errors == 0:
             LOGGER.error("No healthy TTS provider is available")
+
+    @staticmethod
+    def _initialize_provider(provider: TTSProvider | None) -> bool:
+        if provider is None:
+            return False
+        if provider.health_check():
+            return True
+        try:
+            started = perf_counter()
+            provider.initialize()
+            LOGGER.info("provider=%s initialization_ms=%.2f", provider.name, (perf_counter() - started) * 1000)
+            return provider.health_check()
+        except Exception as exc:
+            LOGGER.warning("provider=%s initialization failed error=%s", provider.name, exc)
+            return False
 
     def _speak_provider(self, provider: TTSProvider, text: str) -> None:
         if getattr(provider, "direct_playback", False):

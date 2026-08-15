@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from collections.abc import Callable
 from typing import Any
+from time import perf_counter
 
 from .config import load_config
 from .logging_setup import setup_logging
@@ -29,6 +30,7 @@ class IsabellaApp:
         self.state_history = [self.status]
         self.voice_listener: Any | None = None
         self.tts_manager: Any | None = None
+        self.startup_metrics: dict[str, float] = {}
 
     def _set_status(self, status: IsabellaStatus) -> None:
         self.status = status
@@ -36,8 +38,11 @@ class IsabellaApp:
 
     def start(self) -> None:
         """Load configuration and bring the application online."""
+        total_started = perf_counter()
         self._set_status(IsabellaStatus.STARTING)
+        config_started = perf_counter()
         self.config = load_config(self.config_path)
+        self.startup_metrics["config_ms"] = (perf_counter() - config_started) * 1000
         self.logger = setup_logging(self.log_path, debug=self.config["debug"])
 
         print(self.config["full_name"])
@@ -46,9 +51,15 @@ class IsabellaApp:
         self.logger.info("Configuration loaded.")
         self._set_status(IsabellaStatus.ONLINE)
         self.logger.info("ISABELLA online.")
+        self.startup_metrics["core_ms"] = (perf_counter() - total_started) * 1000
+        logging.getLogger("PERFORMANCE").info(
+            "startup config_ms=%.2f core_ms=%.2f",
+            self.startup_metrics["config_ms"], self.startup_metrics["core_ms"],
+        )
 
     def start_voice(self, callback: Callable[[str], object], config_path: Path | None = None) -> bool:
         """Start optional voice input without affecting Core availability."""
+        started_at = perf_counter()
         try:
             from Isabella.Voice.listener import VoiceListener
             from Isabella.Voice.models import load_voice_config
@@ -68,6 +79,8 @@ class IsabellaApp:
                 self.logger.exception("Voice input unavailable; text mode remains online.")
             self.voice_listener = None
             return False
+        finally:
+            self.startup_metrics["voice_ms"] = (perf_counter() - started_at) * 1000
 
     def start_tts(
         self,
@@ -75,6 +88,7 @@ class IsabellaApp:
         state_callback: Callable[[bool], None] | None = None,
     ) -> bool:
         """Start optional voice output with listener echo protection."""
+        started_at = perf_counter()
         try:
             from Isabella.Voice.models import load_voice_config
             from Isabella.Voice.tts import TTSManager
@@ -105,6 +119,8 @@ class IsabellaApp:
                 self.logger.exception("TTS unavailable; text mode remains online.")
             self.tts_manager = None
             return False
+        finally:
+            self.startup_metrics["tts_ms"] = (perf_counter() - started_at) * 1000
 
     def speak(self, text: str) -> bool:
         return bool(self.tts_manager and self.tts_manager.speak(text))

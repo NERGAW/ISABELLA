@@ -29,4 +29,6 @@ def setup_logging(log_path: Path | None = None, debug: bool = False) -> logging.
 
     root_logger.addHandler(stream_handler)
     root_logger.addHandler(file_handler)
+    for noisy_logger in ("asyncio", "comtypes", "httpcore", "httpx", "urllib3", "faster_whisper"):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
     return logging.getLogger("CORE")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import deque
 from time import perf_counter
 from typing import Any
 
@@ -15,8 +16,8 @@ LOGGER = logging.getLogger("SKILL")
 class SkillRegistry:
     def __init__(self) -> None:
         self._skills: dict[str, SkillDefinition] = {}
-        self.validation_latencies_ms: list[float] = []
-        self.execution_latencies_ms: list[float] = []
+        self.validation_latencies_ms: deque[float] = deque(maxlen=200)
+        self.execution_latencies_ms: deque[float] = deque(maxlen=200)
 
     def register(self, definition: SkillDefinition) -> None:
         if definition.id in self._skills:

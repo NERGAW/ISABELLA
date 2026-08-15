@@ -111,6 +111,23 @@ def test_primary_initialization_failure_keeps_fallback():
     manager.shutdown()
 
 
+def test_healthy_primary_keeps_fallback_lazy_until_needed():
+    primary = FakeProvider("primary")
+    fallback = FakeProvider("fallback")
+    manager, _ = make_manager(primary, fallback)
+    assert manager.initialize()
+    assert primary.initialized
+    assert fallback.initialized is False
+    manager.shutdown()
+
+
+def test_metrics_are_bounded():
+    manager, _ = make_manager()
+    for index in range(250):
+        manager.metrics.append({"index": index})
+    assert len(manager.metrics) == 200
+
+
 def test_total_failure_enters_error_without_crashing():
     manager, _ = make_manager(FakeProvider("primary", synth_error=True), FakeProvider("fallback", synth_error=True))
     manager.initialize()

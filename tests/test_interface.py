@@ -8,6 +8,7 @@ from Isabella.Interface.controller import InterfaceController
 from Isabella.Interface.hud import IsabellaHUD
 from Isabella.Interface.models import MessageRole, UIMessage, UIState
 from Isabella.Interface.workers import BrainWorker
+from Isabella.Core.diagnostics import technical_snapshot
 from Isabella.Intelligence.models import BrainResponse, Intent
 
 
@@ -156,3 +157,26 @@ def test_backend_start_contract_does_not_need_to_return_itself(monkeypatch):
     monkeypatch.setattr(QT_APP, "exec", lambda: 0)
     assert hud.run_gui() == 0
     assert hasattr(backend, "voice_callback")
+
+
+def test_diagnostics_reports_bounded_runtime_snapshot():
+    app = FakeApp()
+    app.status = type("Status", (), {"value": "ONLINE"})()
+    controller = InterfaceController(app, FakeBrain())
+    snapshot = technical_snapshot(app, controller.brain, controller)
+    assert snapshot["core_status"] == "ONLINE"
+    assert snapshot["skills_count"] == 1
+    assert set(snapshot["queue_sizes"]) == {"voice", "tts", "workers"}
+    assert snapshot["ram_mb"] > 0
+
+
+def test_controller_shutdown_waits_workers_and_closes_resources():
+    app = FakeApp()
+    brain = FakeBrain()
+    brain.shutdown_called = False
+    brain.shutdown = lambda: setattr(brain, "shutdown_called", True)
+    controller = InterfaceController(app, brain)
+    controller.shutdown()
+    assert app.closed
+    assert brain.shutdown_called
+    assert controller.thread_pool.activeThreadCount() == 0

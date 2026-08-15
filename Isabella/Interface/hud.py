@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import html
 import sys
+import logging
+from time import perf_counter
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCloseEvent, QKeyEvent
@@ -202,11 +204,23 @@ class IsabellaHUD(QMainWindow):
 
 
 def run_gui() -> int:
+    startup_started = perf_counter()
     qt_app = QApplication.instance() or QApplication(sys.argv)
     backend = IsabellaApp()
     backend.start()
     controller = InterfaceController(backend, Brain.from_config())
+    gui_started = perf_counter()
     window = IsabellaHUD(controller)
+    gui_ms = (perf_counter() - gui_started) * 1000
     window.show()
     controller.start_services()
+    total_ms = (perf_counter() - startup_started) * 1000
+    startup_metrics = getattr(backend, "startup_metrics", {})
+    startup_metrics["gui_ms"] = gui_ms
+    startup_metrics["total_ms"] = total_ms
+    logging.getLogger("PERFORMANCE").info(
+        "startup gui_ms=%.2f llm_initialization_ms=%.2f voice_ms=%.2f tts_ms=%.2f total_ms=%.2f",
+        gui_ms, getattr(controller.brain, "startup_metrics", {}).get("llm_initialization_ms", 0.0),
+        startup_metrics.get("voice_ms", 0.0), startup_metrics.get("tts_ms", 0.0), total_ms,
+    )
     return qt_app.exec()

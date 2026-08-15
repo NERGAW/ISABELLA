@@ -3,6 +3,7 @@
 import logging
 import math
 import threading
+from collections import deque
 from time import perf_counter
 from typing import Any
 
@@ -25,7 +26,7 @@ class FasterWhisperSTT:
         self._model = None
         self._load_lock = threading.Lock()
         self.load_count = 0
-        self.latencies_ms: list[float] = []
+        self.latencies_ms: deque[float] = deque(maxlen=200)
 
     def load(self) -> None:
         if self._model is not None:

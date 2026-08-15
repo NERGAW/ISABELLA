@@ -34,6 +34,7 @@ class InterfaceController(QObject):
         self.thread_pool = QThreadPool(self)
         self.thread_pool.setMaxThreadCount(1)
         self._workers: set[object] = set()
+        self._request_sequence = 0
         self.voice_command_received.connect(self.submit_voice_text)
         self.tts_speaking_received.connect(self.set_tts_speaking)
 
@@ -74,7 +75,11 @@ class InterfaceController(QObject):
         LOGGER.info("user message source=%s", "voice" if from_voice else "text")
         self._set_busy(True)
         self.set_state(UIState.THINKING)
-        worker = BrainWorker(self.brain, cleaned)
+        self._request_sequence += 1
+        worker = BrainWorker(
+            self.brain, cleaned, request_id=f"ui-{self._request_sequence:06d}",
+            input_source="voice" if from_voice else "text",
+        )
         worker.signals.phase.connect(lambda phase: self.set_state(UIState(phase)))
         worker.signals.result.connect(self._handle_brain_response)
         worker.signals.error.connect(self._handle_error)
@@ -174,4 +179,7 @@ class InterfaceController(QObject):
     def shutdown(self) -> None:
         self.thread_pool.clear()
         self.thread_pool.waitForDone(5000)
+        shutdown = getattr(self.brain, "shutdown", None)
+        if shutdown:
+            shutdown()
         self.app.shutdown()

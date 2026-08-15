@@ -2,6 +2,7 @@
 
 import logging
 import re
+from collections import deque
 from time import perf_counter
 import unicodedata
 
@@ -17,7 +18,7 @@ ACTION_WORDS = (
 
 class Router:
     def __init__(self) -> None:
-        self.latencies_ms: list[float] = []
+        self.latencies_ms: deque[float] = deque(maxlen=200)
 
     def route(self, text: str) -> Intent:
         started = perf_counter()

@@ -2,7 +2,9 @@
 
 import json
 import logging
+from collections import deque
 from pathlib import Path
+import threading
 from time import perf_counter
 from typing import Any
 
@@ -72,7 +74,9 @@ class OllamaProvider:
         self.temperature = float(config["temperature"])
         self.timeout = float(config["timeout_seconds"])
         self.max_retries = int(config["max_retries"])
-        self.latencies_ms: list[float] = []
+        self.latencies_ms: deque[float] = deque(maxlen=200)
+        self._session = requests.Session()
+        self._session_lock = threading.Lock()
 
     @classmethod
     def from_config(cls, path: Path | None = None) -> "OllamaProvider":
@@ -82,9 +86,10 @@ class OllamaProvider:
         last_error: requests.RequestException | None = None
         for attempt in range(self.max_retries + 1):
             try:
-                response = requests.request(
-                    method, f"{self.base_url}{endpoint}", timeout=self.timeout, **kwargs
-                )
+                with self._session_lock:
+                    response = self._session.request(
+                        method, f"{self.base_url}{endpoint}", timeout=self.timeout, **kwargs
+                    )
                 response.raise_for_status()
                 return response
             except requests.RequestException as exc:
@@ -160,3 +165,7 @@ class OllamaProvider:
     @property
     def average_latency_ms(self) -> float:
         return sum(self.latencies_ms) / len(self.latencies_ms) if self.latencies_ms else 0.0
+
+    def close(self) -> None:
+        with self._session_lock:
+            self._session.close()
