@@ -6,6 +6,7 @@ from .browser import create_browser_skills
 from .registry import SkillRegistry
 from .system import create_system_skills
 from .vision import create_vision_skills
+from .diagnostics import create_diagnostics_skill
 
 
 def build_default_registry(vision_manager=None, event_bus=None, policy_engine=None) -> SkillRegistry:
@@ -31,4 +32,5 @@ __all__ = [
     "SkillResult",
     "build_default_registry",
     "create_vision_skills",
+    "create_diagnostics_skill",
 ]

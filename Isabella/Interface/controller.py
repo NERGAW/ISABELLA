@@ -21,6 +21,7 @@ class InterfaceController(QObject):
     voice_command_received = Signal(str)
     tts_speaking_received = Signal(bool)
     context_changed = Signal(object)
+    diagnostics_received = Signal(object)
 
     def __init__(self, app, brain, message_limit: int = 100) -> None:
         super().__init__()
@@ -39,6 +40,9 @@ class InterfaceController(QObject):
         self._active_correlation_id: str | None = None
         self._pending_confirmation = None
         self.event_bus = getattr(app, "event_bus", None)
+        diagnostics = getattr(brain, "diagnostics", None)
+        if diagnostics:
+            diagnostics.bind(app=app, brain=brain, controller=self, event_bus=self.event_bus)
         self.voice_command_received.connect(self.submit_voice_text)
         self.tts_speaking_received.connect(self.set_tts_speaking)
         if self.event_bus:
@@ -144,6 +148,9 @@ class InterfaceController(QObject):
         self.add_message(MessageRole.ISABELLA, response.message, MessageType.ACTION)
         LOGGER.info("response received latency_ms=%.2f", latency_ms)
         pending = next((result for result in response.skill_results if result.status == "confirmation_required"), None)
+        diagnostics = next((result for result in response.skill_results if result.skill_id == "system.diagnostics" and result.success), None)
+        if diagnostics and diagnostics.data.get("detailed"):
+            self.diagnostics_received.emit(diagnostics.data["report"])
         if pending:
             request = self.brain.pending_confirmation(pending.data["confirmation_id"])
             if request:

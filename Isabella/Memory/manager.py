@@ -7,6 +7,7 @@ import logging
 from collections import deque
 from pathlib import Path
 from time import perf_counter
+from datetime import datetime, timezone
 from typing import Any
 
 from Isabella.Core.config import ConfigurationError, PROJECT_ROOT
@@ -54,6 +55,8 @@ class MemoryManager:
         )
         self.max_results = int(config.get("max_retrieval_results", 5))
         self.metrics = {"write_ms": deque(maxlen=200), "recall_ms": deque(maxlen=200), "retrieval_ms": deque(maxlen=200)}
+        self.last_write_at: str | None = None
+        self.last_read_at: str | None = None
         if self.enabled and self.database is None:
             path = Path(str(config["database_path"]))
             self.database = MemoryDatabase(path if path.is_absolute() else PROJECT_ROOT / path)
@@ -75,6 +78,8 @@ class MemoryManager:
             manager.working_memory = deque(maxlen=int(config["working_memory_max_messages"]))
             manager.max_results = int(config.get("max_retrieval_results", 5))
             manager.metrics = {"write_ms": deque(maxlen=200), "recall_ms": deque(maxlen=200), "retrieval_ms": deque(maxlen=200)}
+            manager.last_write_at = None
+            manager.last_read_at = None
             return manager
 
     @staticmethod
@@ -105,6 +110,7 @@ class MemoryManager:
             self._database_failed(exc)
             raise MemoryError("Memory database is unavailable") from exc
         self.metrics["write_ms"].append((perf_counter() - started) * 1000)
+        self.last_write_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         LOGGER.info("created id=%s type=%s", record.id, record.type.value)
         if self.event_bus:
             self.event_bus.emit(EventType.MEMORY_CREATED, "memory", {"id": record.id, "type": record.type.value, "key": record.key})
@@ -121,6 +127,7 @@ class MemoryManager:
             self._database_failed(exc)
             return []
         self.metrics["recall_ms"].append((perf_counter() - started) * 1000)
+        self.last_read_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         LOGGER.info("recalled count=%d", len(records))
         if self.event_bus:
             self.event_bus.emit(EventType.MEMORY_RECALLED, "memory", {"count": len(records), "key": key})
@@ -139,6 +146,8 @@ class MemoryManager:
             LOGGER.info("forgotten id=%s", memory_id)
             if self.event_bus:
                 self.event_bus.emit(EventType.MEMORY_REMOVED, "memory", {"id": memory_id, "key": key})
+        if ids:
+            self.last_write_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         return len(ids)
 
     def search(self, query: str, limit: int | None = None) -> list[MemoryRecord]:
@@ -151,6 +160,7 @@ class MemoryManager:
             self._database_failed(exc)
             return []
         self.metrics["retrieval_ms"].append((perf_counter() - started) * 1000)
+        self.last_read_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         LOGGER.info("recalled count=%d", len(records))
         if self.event_bus:
             self.event_bus.emit(EventType.MEMORY_RECALLED, "memory", {"count": len(records), "query_terms": len(keywords(query))})
@@ -160,7 +170,9 @@ class MemoryManager:
         if not self.database:
             return []
         try:
-            return self.database.list(self._type(memory_type) if memory_type else None)
+            records = self.database.list(self._type(memory_type) if memory_type else None)
+            self.last_read_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+            return records
         except Exception as exc:
             self._database_failed(exc)
             return []

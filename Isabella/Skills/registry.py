@@ -75,7 +75,10 @@ class SkillRegistry:
                 return SkillResult(False, skill_id, f"Argumentos ausentes: {', '.join(missing)}.", error_code="MISSING_ARGUMENTS", status="rejected")
             for name, value in arguments.items():
                 expected = definition.parameters[name].value_type
-                if isinstance(value, bool) or not isinstance(value, expected):
+                bool_not_expected = isinstance(value, bool) and expected is not bool and not (
+                    isinstance(expected, tuple) and bool in expected
+                )
+                if bool_not_expected or not isinstance(value, expected):
                     return SkillResult(False, skill_id, f"Tipo inválido para {name}.", error_code="INVALID_ARGUMENT_TYPE", status="rejected")
             return None
         finally:
@@ -147,13 +150,17 @@ class SkillRegistry:
         if not self.event_bus:
             return
         event_type = EventType.SKILL_COMPLETED if result.success else EventType.SKILL_FAILED
+        event_data = (
+            {"summary": result.message, "detailed": result.data.get("detailed", False)}
+            if result.skill_id == "system.diagnostics" else result.data
+        )
         self.event_bus.emit(
             event_type, "skills",
             {
                 "skill_id": result.skill_id, "status": result.status,
                 "risk_level": self._skills[result.skill_id].risk_level.value if result.skill_id in self._skills else "UNKNOWN",
                 "success": result.success, "message": result.message,
-                "data": _safe_event_value(result.data),
+                "data": _safe_event_value(event_data),
                 "arguments": _safe_event_value(arguments),
                 "duration_ms": (perf_counter() - started) * 1000,
             },

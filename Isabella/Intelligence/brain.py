@@ -10,7 +10,7 @@ from .llm import OllamaProvider, ProviderUnavailableError, load_intelligence_con
 from .models import BrainResponse, Intent, Plan, SkillRequest
 from .planner import Planner
 from .router import Router
-from Isabella.Skills import SkillRegistry, build_default_registry
+from Isabella.Skills import SkillRegistry, build_default_registry, create_diagnostics_skill
 from Isabella.Skills.base import SkillResult
 from Isabella.Memory import MemoryManager, MemoryType
 from Isabella.Memory.manager import MemoryError, SecretMemoryError
@@ -23,6 +23,7 @@ from Isabella.Skills.base import RiskLevel
 from Isabella.Vision import VisionManager
 from Isabella.Events import EventPriority, EventType, reset_correlation_id, set_correlation_id
 from Isabella.Security import ConfirmationRequest, SecurityPolicyEngine
+from Isabella.Diagnostics import DiagnosticsManager
 
 
 LOGGER = logging.getLogger("BRAIN")
@@ -30,11 +31,12 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.event_bus = event_bus
         self.security = security or getattr(registry, "policy_engine", None)
+        self.diagnostics = diagnostics
         self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory
@@ -54,17 +56,21 @@ class Brain:
         context = ContextManager.from_config(memory=memory, event_bus=event_bus)
         vision = VisionManager.from_config(context=context, event_bus=event_bus)
         security = SecurityPolicyEngine.from_config(event_bus=event_bus)
+        registry = build_default_registry(vision, event_bus=event_bus, policy_engine=security)
         brain = cls(
             OllamaProvider(config),
             router=router,
             planner=Planner(max_steps=int(config["max_plan_steps"]), router=router, event_bus=event_bus),
-            registry=build_default_registry(vision, event_bus=event_bus, policy_engine=security),
+            registry=registry,
             memory=memory,
             context=context,
             vision=vision,
             event_bus=event_bus,
             security=security,
         )
+        diagnostics = DiagnosticsManager.from_config(brain=brain, event_bus=event_bus)
+        brain.diagnostics = diagnostics
+        registry.register(create_diagnostics_skill(diagnostics))
         brain.startup_metrics = {
             "intelligence_config_ms": config_ms,
             "llm_initialization_ms": (perf_counter() - started) * 1000,
@@ -358,6 +364,8 @@ class Brain:
         return sum(self.latencies_ms) / len(self.latencies_ms) if self.latencies_ms else 0.0
 
     def shutdown(self) -> None:
+        if self.diagnostics:
+            self.diagnostics.shutdown()
         if self.vision:
             self.vision.shutdown()
         if self.context:

@@ -58,6 +58,7 @@ class SecurityPolicyEngine:
             name: PolicyDecision(decision) for name, decision in config["risk_policies"].items()
         }
         self._pending: dict[str, ConfirmationRequest] = {}
+        self.expired_count = 0
         self._lock = threading.RLock()
 
     @classmethod
@@ -143,7 +144,14 @@ class SecurityPolicyEngine:
                 self._pending.pop(request.id, None)
         for request in expired:
             self._emit(EventType.SECURITY_EXPIRED, request.skill_id, request.source_request_id)
+        with self._lock:
+            self.expired_count += len(expired)
         return len(expired)
+
+    @property
+    def pending_count(self) -> int:
+        with self._lock:
+            return len(self._pending)
 
     def _emit(self, event_type, skill_id: str, correlation_id: str | None, extra=None) -> None:
         LOGGER.log(

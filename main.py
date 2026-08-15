@@ -52,6 +52,7 @@ def run_cli() -> None:
     try:
         app.start()
         brain = Brain.from_config(event_bus=app.event_bus)
+        brain.diagnostics.bind(app=app, event_bus=app.event_bus)
 
         def handle_voice_command(command: str) -> None:
             display_response(app, brain, brain.process(command), allow_confirmation=False)

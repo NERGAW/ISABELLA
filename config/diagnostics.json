@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "check_interval_seconds": 15,
+  "expensive_check_interval_seconds": 60,
+  "failure_history_limit": 100
+}

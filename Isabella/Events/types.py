@@ -37,3 +37,4 @@ class EventType(str, Enum):
     SECURITY_DENIED = "security.denied"
     SECURITY_CONFIRMED = "security.confirmed"
     SECURITY_EXPIRED = "security.expired"
+    DIAGNOSTICS_STATUS_CHANGED = "diagnostics.status_changed"

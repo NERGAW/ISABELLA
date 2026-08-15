@@ -135,3 +135,10 @@ class MemoryDatabase:
     def close(self) -> None:
         with self._lock:
             self._connection.close()
+
+    def health_check(self) -> bool:
+        try:
+            with self._lock:
+                return self._connection.execute("SELECT 1").fetchone()[0] == 1
+        except sqlite3.Error:
+            return False

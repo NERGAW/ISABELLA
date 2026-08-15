@@ -147,6 +147,7 @@ class IsabellaHUD(QMainWindow):
         self.controller.confirmation_required.connect(self.confirm_action)
         self.controller.backend_latency.connect(lambda value: self.latency.setText(f"Latência: {value:.0f} ms"))
         self.controller.context_changed.connect(self.set_context)
+        self.controller.diagnostics_received.connect(self.show_diagnostics)
 
     def _submit(self) -> None:
         text = self.input.toPlainText().strip()
@@ -215,6 +216,23 @@ class IsabellaHUD(QMainWindow):
             self.controller.confirm_critical(request)
         else:
             self.controller.cancel_critical()
+
+    def show_diagnostics(self, report: dict) -> None:
+        statuses = report.get("statuses", {})
+        lines = [f"{name}: {item.get('status', 'UNKNOWN')}" for name, item in statuses.items()]
+        metrics = report.get("metrics", {})
+        lines.extend([
+            "",
+            f"CPU: {metrics.get('cpu_percent', 0):.1f}%",
+            f"RAM do processo: {metrics.get('process_memory_mb', 0):.1f} MB",
+            f"Threads: {metrics.get('thread_count', 0)}",
+        ])
+        self._diagnostics_dialog = QMessageBox(self)
+        self._diagnostics_dialog.setWindowTitle("Diagnóstico técnico")
+        self._diagnostics_dialog.setText(report.get("summary", "Diagnóstico concluído."))
+        self._diagnostics_dialog.setDetailedText("\n".join(lines))
+        self._diagnostics_dialog.setStandardButtons(QMessageBox.StandardButton.Close)
+        self._diagnostics_dialog.show()
 
     @staticmethod
     def _repolish(label: QLabel, kind: str) -> None:

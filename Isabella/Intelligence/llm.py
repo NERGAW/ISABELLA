@@ -75,6 +75,7 @@ class OllamaProvider:
         self.timeout = float(config["timeout_seconds"])
         self.max_retries = int(config["max_retries"])
         self.latencies_ms: deque[float] = deque(maxlen=200)
+        self.recent_errors: deque[str] = deque(maxlen=50)
         self._session = requests.Session()
         self._session_lock = threading.Lock()
 
@@ -94,6 +95,7 @@ class OllamaProvider:
                 return response
             except requests.RequestException as exc:
                 last_error = exc
+                self.recent_errors.append(type(exc).__name__)
                 LOGGER.warning("request_failed endpoint=%s attempt=%d", endpoint, attempt + 1)
         raise ProviderUnavailableError(
             f"Intelligence provider unavailable at {self.base_url}"
