@@ -18,6 +18,9 @@
 - Shutdown coordenado de workers, TTS, microfone e sessão HTTP.
 - Diagnóstico técnico interno por `Core.diagnostics.technical_snapshot`.
 - Filas, histórico, cache e séries de métricas com limites definidos.
+- Memória persistente SQLite seletiva, memória de sessão em RAM e recuperação
+  limitada por chave, tags e palavras-chave.
+- Preferência persistente de navegador integrada à abertura de aplicativos.
 
 ## Limites conhecidos
 
@@ -31,7 +34,6 @@
 
 ## Deliberadamente fora do escopo atual
 
-Não existem Memory, Vision, reconhecimento facial, Event Bus, MCP, Nodes,
+Não existem Vision, reconhecimento facial, Event Bus, MCP, Nodes,
 Android, Arduino, ESP32 ou integração Home Assistant. A Fase 7 não adiciona
 essas funcionalidades.
-

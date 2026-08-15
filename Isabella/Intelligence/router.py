@@ -74,7 +74,7 @@ class Router:
             (("bloco de notas", "notepad"), "notepad"),
             (("calculadora", "calculator", "calc"), "calculator"),
             (("explorador de arquivos", "explorer"), "explorer"),
-            (("chrome", "navegador"), "chrome"),
+            (("chrome",), "chrome"),
         )
         name = next((app_id for names, app_id in aliases if any(alias in normalized for alias in names)), None)
         if name is None:

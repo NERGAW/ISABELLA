@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "database_path": "data/memory/isabella_memory.db",
+  "working_memory_max_messages": 30,
+  "max_retrieval_results": 5,
+  "auto_save_preferences": false,
+  "auto_save_facts": false,
+  "auto_save_projects": false,
+  "semantic_search_enabled": false
+}

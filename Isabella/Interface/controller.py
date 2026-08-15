@@ -42,6 +42,8 @@ class InterfaceController(QObject):
         self.update_subsystem("CORE", "ONLINE")
         self.update_subsystem("SKILLS", "ONLINE" if self.brain.registry else "DEGRADED")
         self.update_subsystem("PLANNER", "ONLINE")
+        memory = getattr(self.brain, "memory", None)
+        self.update_subsystem("MEMORY", getattr(memory, "status", "OFFLINE"))
         voice_ok = self.app.start_voice(self.voice_command_received.emit)
         self.update_subsystem("VOICE INPUT", "ONLINE" if voice_ok else "DEGRADED")
         tts_ok = self.app.start_tts(state_callback=self.tts_speaking_received.emit)
