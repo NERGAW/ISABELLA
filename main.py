@@ -2,7 +2,7 @@
 
 from Isabella.Core.app import IsabellaApp
 from Isabella.Intelligence.brain import Brain
-from Isabella.Intelligence.models import Intent
+from Isabella.Intelligence.models import Intent, SkillRequest
 
 
 def main() -> None:
@@ -24,16 +24,24 @@ def main() -> None:
             response = brain.process(user_text)
             if response.response_type == Intent.CONVERSATION:
                 print(f"\nISABELLA:\n{response.message}")
-            elif response.skill_request:
-                request = response.skill_request
-                print("\nDEBUG:")
-                print(f"intent={response.response_type.value}")
-                print(f"skill={request.skill}")
-                print(f"arguments={request.arguments}")
-            elif response.plan:
-                print("\nDEBUG:")
-                print(f"intent={response.response_type.value}")
-                print(f"plan={response.plan.to_dict()}")
+            else:
+                print(f"\n[ROUTER] {response.response_type.value}")
+                for result in response.skill_results:
+                    print(f"[SKILL] {result.skill_id}")
+                    print(f"[STATUS] {result.status}")
+                    print(f"\nISABELLA:\n{result.message}")
+                    if result.status == "confirmation_required":
+                        confirmation = input("Confirmar esta ação? (sim/não) ").strip().lower()
+                        if confirmation == "sim":
+                            request = response.skill_request or SkillRequest(
+                                result.skill_id, result.data["arguments"]
+                            )
+                            confirmed = brain.confirm(request)
+                            print(f"[STATUS] {confirmed.status}")
+                            print(f"\nISABELLA:\n{confirmed.message}")
+                        else:
+                            print("[STATUS] cancelled")
+                            print("\nISABELLA:\nAção cancelada.")
     except KeyboardInterrupt:
         pass
     finally:

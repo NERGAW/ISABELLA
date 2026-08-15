@@ -82,6 +82,7 @@ class BrainResponse:
     message: str
     skill_request: SkillRequest | None = None
     plan: Plan | None = None
+    skill_results: tuple[Any, ...] = ()
 
     def __post_init__(self) -> None:
         if self.response_type == Intent.SINGLE_SKILL and not self.skill_request:

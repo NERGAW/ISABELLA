@@ -3,12 +3,16 @@
 import logging
 import re
 from time import perf_counter
+import unicodedata
 
 from .models import Intent, SkillRequest
 
 
 LOGGER = logging.getLogger("ROUTER")
-ACTION_WORDS = ("abra", "abrir", "inicie", "iniciar", "feche", "fechar", "tire", "captura", "volume", "deslig", "reinici", "suspend")
+ACTION_WORDS = (
+    "abra", "abre", "abrir", "inicie", "iniciar", "entrar", "usar", "assistir",
+    "feche", "fechar", "tire", "captura", "volume", "deslig", "reinici", "suspend",
+)
 
 
 class Router:
@@ -17,12 +21,12 @@ class Router:
 
     def route(self, text: str) -> Intent:
         started = perf_counter()
-        normalized = text.strip().lower()
-        action_count = sum(normalized.count(word) for word in ACTION_WORDS)
-        connectors = bool(re.search(r"\b(e depois|depois|e então|,\s*(?:e\s*)?)\b", normalized))
-        if action_count >= 2 or (action_count >= 1 and connectors and self._has_two_targets(normalized)):
+        normalized = self.normalize_text(text)
+        clauses = [part.strip() for part in re.split(r"\b(?:e depois|depois|e entao|e)\b|,", normalized) if part.strip()]
+        action_clauses = sum(self._is_action(clause) for clause in clauses)
+        if action_clauses >= 2:
             intent = Intent.MULTI_STEP
-        elif action_count >= 1 or "quero usar o navegador" in normalized:
+        elif self._is_action(normalized):
             intent = Intent.SINGLE_SKILL
         else:
             intent = Intent.CONVERSATION
@@ -32,17 +36,25 @@ class Router:
         return intent
 
     @staticmethod
-    def _has_two_targets(text: str) -> bool:
-        targets = ("chrome", "discord", "youtube", "navegador", "captura", "tela")
-        return sum(target in text for target in targets) >= 2
+    def _is_action(text: str) -> bool:
+        return text.startswith(("http://", "https://")) or any(word in text for word in ACTION_WORDS) or any(
+            target in text for target in ("discord", "youtube", "github", "editor de codigo")
+        )
 
     def skill_request(self, text: str) -> SkillRequest:
-        normalized = text.lower()
+        normalized = self.normalize_text(text)
+        url_match = re.search(r"https?://[^\s]+", normalized)
+        if url_match:
+            return SkillRequest("browser.open_url", {"url": url_match.group(0).rstrip(".,!?")})
         if "captura" in normalized or "screenshot" in normalized:
             return SkillRequest("system.screenshot", {})
         if "volume" in normalized:
             match = re.search(r"(\d{1,3})", normalized)
-            return SkillRequest("system.set_volume", {"level": int(match.group(1)) if match else 50})
+            value = int(match.group(1)) if match else (50 if "metade" in normalized else -1)
+            return SkillRequest("system.set_volume", {"value": value})
+        timer = re.search(r"(?:deslig\w*).+?(\d+)\s*min", normalized)
+        if timer:
+            return SkillRequest("system.shutdown_timer", {"minutes": int(timer.group(1))})
         for action, skill in (
             ("deslig", "system.shutdown"),
             ("reinici", "system.restart"),
@@ -50,14 +62,30 @@ class Router:
         ):
             if action in normalized:
                 return SkillRequest(skill, {})
-        if "youtube" in normalized:
-            return SkillRequest("browser.open_url", {"url": "https://youtube.com"})
-        if "discord" in normalized:
-            name = "discord"
-        else:
-            name = "chrome"
+        for target in ("youtube", "github", "google"):
+            if target in normalized:
+                return SkillRequest("browser.open_url", {"target": target})
+        aliases = (
+            (("discord",), "discord"),
+            (("steam",), "steam"),
+            (("whatsapp", "whats app"), "whatsapp"),
+            (("vs code", "vscode", "visual studio code", "editor de codigo"), "vscode"),
+            (("bloco de notas", "notepad"), "notepad"),
+            (("calculadora", "calculator", "calc"), "calculator"),
+            (("explorador de arquivos", "explorer"), "explorer"),
+            (("chrome", "navegador"), "chrome"),
+        )
+        name = next((app_id for names, app_id in aliases if any(alias in normalized for alias in names)), None)
+        if name is None:
+            match = re.search(r"(?:abra|abre|abrir|inicie|iniciar)\s+(?:o|a)?\s*(.+?)(?:\s+para mim)?[.!?]*$", normalized)
+            name = match.group(1).strip() if match else normalized
         skill = "applications.close" if any(word in normalized for word in ("feche", "fechar")) else "applications.open"
         return SkillRequest(skill, {"name": name})
+
+    @staticmethod
+    def normalize_text(text: str) -> str:
+        decomposed = unicodedata.normalize("NFKD", text.strip().lower())
+        return "".join(character for character in decomposed if not unicodedata.combining(character))
 
     @property
     def average_latency_ms(self) -> float:

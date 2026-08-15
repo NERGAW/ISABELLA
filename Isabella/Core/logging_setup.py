@@ -22,7 +22,7 @@ def setup_logging(log_path: Path | None = None, debug: bool = False) -> logging.
     root_logger.handlers.clear()
 
     formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
-    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler = logging.StreamHandler(sys.__stdout__)
     stream_handler.setFormatter(formatter)
     file_handler = logging.FileHandler(destination, encoding="utf-8")
     file_handler.setFormatter(formatter)

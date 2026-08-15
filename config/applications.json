@@ -1,0 +1,42 @@
+{
+  "chrome": {
+    "aliases": ["chrome", "google chrome", "navegador"],
+    "paths": [],
+    "executables": ["chrome.exe"]
+  },
+  "discord": {
+    "aliases": ["discord"],
+    "paths": [],
+    "executables": ["Discord.exe"]
+  },
+  "steam": {
+    "aliases": ["steam"],
+    "paths": [],
+    "executables": ["steam.exe"]
+  },
+  "whatsapp": {
+    "aliases": ["whatsapp", "whats app"],
+    "paths": [],
+    "executables": ["WhatsApp.exe"]
+  },
+  "vscode": {
+    "aliases": ["vscode", "vs code", "visual studio code", "editor de código"],
+    "paths": [],
+    "executables": ["Code.exe", "code.cmd"]
+  },
+  "notepad": {
+    "aliases": ["notepad", "bloco de notas"],
+    "paths": [],
+    "executables": ["notepad.exe"]
+  },
+  "calculator": {
+    "aliases": ["calculator", "calculadora", "calc"],
+    "paths": [],
+    "executables": ["calc.exe"]
+  },
+  "explorer": {
+    "aliases": ["explorer", "explorador", "explorador de arquivos"],
+    "paths": [],
+    "executables": ["explorer.exe"]
+  }
+}

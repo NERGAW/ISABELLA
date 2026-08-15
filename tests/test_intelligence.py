@@ -61,6 +61,24 @@ def test_router_intents(text, expected):
     assert Router().route(text) == expected
 
 
+@pytest.mark.parametrize(
+    ("text", "skill", "arguments"),
+    [
+        ("Tire uma captura da tela.", "system.screenshot", {}),
+        ("Reinicie o computador.", "system.restart", {}),
+        ("Deixa o volume na metade.", "system.set_volume", {"value": 50}),
+        ("Abre o editor de código.", "applications.open", {"name": "vscode"}),
+        ("Preciso entrar no Discord.", "applications.open", {"name": "discord"}),
+        ("Abra https://example.com/path.", "browser.open_url", {"url": "https://example.com/path"}),
+    ],
+)
+def test_router_paraphrases(text, skill, arguments):
+    router = Router()
+
+    assert router.route(text) == Intent.SINGLE_SKILL
+    assert router.skill_request(text).to_dict() == {"skill": skill, "arguments": arguments}
+
+
 def test_planner_two_steps():
     plan = Planner().plan("Abra o Chrome e depois abra o YouTube.")
 
