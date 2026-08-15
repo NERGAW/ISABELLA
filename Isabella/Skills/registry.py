@@ -8,16 +8,18 @@ from time import perf_counter
 from typing import Any
 
 from .base import RiskLevel, SkillDefinition, SkillResult
+from Isabella.Events import EventType
 
 
 LOGGER = logging.getLogger("SKILL")
 
 
 class SkillRegistry:
-    def __init__(self) -> None:
+    def __init__(self, event_bus=None) -> None:
         self._skills: dict[str, SkillDefinition] = {}
         self.validation_latencies_ms: deque[float] = deque(maxlen=200)
         self.execution_latencies_ms: deque[float] = deque(maxlen=200)
+        self.event_bus = event_bus
 
     def register(self, definition: SkillDefinition) -> None:
         if definition.id in self._skills:
@@ -62,12 +64,16 @@ class SkillRegistry:
             self.validation_latencies_ms.append(latency)
 
     def execute(self, skill_id: str, arguments: dict[str, Any], confirmed: bool = False) -> SkillResult:
+        started = perf_counter()
+        if self.event_bus:
+            self.event_bus.emit(EventType.SKILL_STARTED, "skills", {"skill_id": skill_id, "status": "started"})
         validation_error = self.validate_arguments(skill_id, arguments)
         if validation_error:
+            self._emit_result(validation_error, started, arguments)
             return validation_error
         definition = self._skills[skill_id]
         if definition.risk_level == RiskLevel.CRITICAL and not confirmed:
-            return SkillResult(
+            result = SkillResult(
                 False,
                 skill_id,
                 "Confirmação explícita necessária.",
@@ -75,18 +81,42 @@ class SkillRegistry:
                 error_code="CONFIRMATION_REQUIRED",
                 status="confirmation_required",
             )
-        started = perf_counter()
+            self._emit_result(result, started, arguments)
+            return result
+        execution_started = perf_counter()
         try:
             result = definition.executor(arguments)
             LOGGER.info("skill=%s status=%s", skill_id, result.status)
+            self._emit_result(result, started, arguments)
             return result
         except Exception:
             LOGGER.exception("skill=%s failed", skill_id)
-            return SkillResult(False, skill_id, "A execução da Skill falhou.", error_code="EXECUTION_ERROR", status="failed")
+            result = SkillResult(False, skill_id, "A execução da Skill falhou.", error_code="EXECUTION_ERROR", status="failed")
+            self._emit_result(result, started, arguments)
+            return result
         finally:
-            latency = (perf_counter() - started) * 1000
+            latency = (perf_counter() - execution_started) * 1000
             self.execution_latencies_ms.append(latency)
             LOGGER.info("skill=%s execution_latency_ms=%.3f", skill_id, latency)
+
+    def _emit_result(self, result: SkillResult, started: float, arguments: dict[str, Any]) -> None:
+        if not self.event_bus:
+            return
+        event_type = EventType.SKILL_COMPLETED if result.success else EventType.SKILL_FAILED
+        self.event_bus.emit(
+            event_type, "skills",
+            {
+                "skill_id": result.skill_id, "status": result.status,
+                "risk_level": self._skills[result.skill_id].risk_level.value if result.skill_id in self._skills else "UNKNOWN",
+                "success": result.success, "message": result.message,
+                "data": result.data,
+                "arguments": {
+                    key: value for key, value in arguments.items()
+                    if not any(secret in key.lower() for secret in ("password", "senha", "token", "secret", "key"))
+                },
+                "duration_ms": (perf_counter() - started) * 1000,
+            },
+        )
 
     @property
     def average_validation_latency_ms(self) -> float:

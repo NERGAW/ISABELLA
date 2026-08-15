@@ -16,6 +16,8 @@ import av
 import numpy as np
 import sounddevice as sd
 
+from Isabella.Events import EventType, get_correlation_id, reset_correlation_id, set_correlation_id
+
 from .tts_base import SynthesizedAudio, TTSProvider, VoiceInfo
 
 
@@ -243,13 +245,15 @@ class TTSManager:
         fallback: TTSProvider | None = None,
         player: MemoryAudioPlayer | None = None,
         on_speaking_change: Callable[[bool], None] | None = None,
+        event_bus=None,
     ) -> None:
         self.config = config
         self.primary = primary or EdgeTTSProvider(config)
         self.fallback = fallback or SAPIProvider(config)
         self.player = player or MemoryAudioPlayer()
         self.on_speaking_change = on_speaking_change or (lambda speaking: None)
-        self._queue: Queue[str | None] = Queue(maxsize=int(config.get("queue_max_size", 10)))
+        self.event_bus = event_bus
+        self._queue: Queue[tuple[str, str | None] | None] = Queue(maxsize=int(config.get("queue_max_size", 10)))
         self._cache: OrderedDict[str, SynthesizedAudio] = OrderedDict()
         self._cache_max = int(config.get("cache_max_entries", 32))
         self._cache_enabled = bool(config.get("cache_enabled", True))
@@ -278,20 +282,34 @@ class TTSManager:
         self._ready_event.set()
         while not self._stop_event.is_set() or not self._queue.empty():
             try:
-                text = self._queue.get(timeout=0.2)
+                item = self._queue.get(timeout=0.2)
             except Empty:
                 continue
-            if text is None:
+            if item is None:
                 self._queue.task_done()
                 break
+            text, correlation_id = item
+            token = set_correlation_id(correlation_id)
             self.state = "SPEAKING"
             self.on_speaking_change(True)
+            if self.event_bus:
+                self.event_bus.emit(EventType.TTS_STARTED, "tts", {"characters": len(text)})
             try:
                 self._speak_with_fallback(text)
                 if self.state != "ERROR":
                     self.state = "READY"
+                    if self.event_bus:
+                        self.event_bus.emit(EventType.TTS_COMPLETED, "tts", {"characters": len(text)})
+                elif self.event_bus:
+                    self.event_bus.emit(EventType.TTS_FAILED, "tts", {"error": "providers_unavailable"})
+            except Exception as exc:
+                self.state = "ERROR"
+                if self.event_bus:
+                    self.event_bus.emit(EventType.TTS_FAILED, "tts", {"error": type(exc).__name__})
+                LOGGER.exception("Unexpected TTS worker failure")
             finally:
                 self.on_speaking_change(False)
+                reset_correlation_id(token)
                 self._queue.task_done()
         if self.state != "ERROR":
             self.state = "STOPPED"
@@ -381,18 +399,18 @@ class TTSManager:
             cache_hit,
         )
 
-    def speak(self, text: str) -> bool:
+    def speak(self, text: str, correlation_id: str | None = None) -> bool:
         if not isinstance(text, str) or not text.strip() or self.state == "ERROR":
             return False
         spoken = prepare_for_speech(text.strip())
         try:
-            self._queue.put_nowait(spoken)
+            self._queue.put_nowait((spoken, correlation_id or get_correlation_id()))
             return True
         except Full:
             try:
                 self._queue.get_nowait()
                 self._queue.task_done()
-                self._queue.put_nowait(spoken)
+                self._queue.put_nowait((spoken, correlation_id or get_correlation_id()))
                 LOGGER.warning("TTS queue full; dropped oldest response")
                 return True
             except (Empty, Full):
@@ -409,6 +427,8 @@ class TTSManager:
                 self._queue.task_done()
             except Empty:
                 break
+        if self.event_bus:
+            self.event_bus.emit(EventType.TTS_STOPPED, "tts")
 
     def health_check(self) -> bool:
         return any(provider and provider.health_check() for provider in (self.primary, self.fallback))

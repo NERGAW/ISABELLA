@@ -220,7 +220,9 @@ def run_gui() -> int:
     qt_app = QApplication.instance() or QApplication(sys.argv)
     backend = IsabellaApp()
     backend.start()
-    controller = InterfaceController(backend, Brain.from_config())
+    event_bus = getattr(backend, "event_bus", None)
+    brain = Brain.from_config(event_bus=event_bus) if event_bus else Brain.from_config()
+    controller = InterfaceController(backend, brain)
     gui_started = perf_counter()
     window = IsabellaHUD(controller)
     gui_ms = (perf_counter() - gui_started) * 1000

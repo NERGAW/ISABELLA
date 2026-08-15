@@ -13,6 +13,7 @@ from Isabella.Core.config import ConfigurationError, PROJECT_ROOT
 from .database import MemoryDatabase
 from .models import MemoryRecord, MemoryType, WorkingMessage
 from .retrieval import contains_secret, keywords
+from Isabella.Events import EventType
 
 
 LOGGER = logging.getLogger("MEMORY")
@@ -42,11 +43,12 @@ def load_memory_config(path: Path | None = None) -> dict[str, Any]:
 
 
 class MemoryManager:
-    def __init__(self, config: dict[str, Any], database: MemoryDatabase | None = None) -> None:
+    def __init__(self, config: dict[str, Any], database: MemoryDatabase | None = None, event_bus=None) -> None:
         self.config = config
         self.enabled = bool(config.get("enabled", True))
         self.status = "OFFLINE" if not self.enabled else "STARTING"
         self.database = database
+        self.event_bus = event_bus
         self.working_memory: deque[WorkingMessage] = deque(
             maxlen=int(config["working_memory_max_messages"])
         )
@@ -58,10 +60,10 @@ class MemoryManager:
         self.status = "ONLINE" if self.database else "OFFLINE"
 
     @classmethod
-    def from_config(cls, path: Path | None = None) -> "MemoryManager":
+    def from_config(cls, path: Path | None = None, event_bus=None) -> "MemoryManager":
         config = load_memory_config(path)
         try:
-            return cls(config)
+            return cls(config, event_bus=event_bus)
         except Exception as exc:
             LOGGER.error("initialization_failed error=%s", type(exc).__name__)
             manager = cls.__new__(cls)
@@ -69,6 +71,7 @@ class MemoryManager:
             manager.enabled = bool(config.get("enabled", True))
             manager.status = "ERROR"
             manager.database = None
+            manager.event_bus = event_bus
             manager.working_memory = deque(maxlen=int(config["working_memory_max_messages"]))
             manager.max_results = int(config.get("max_retrieval_results", 5))
             manager.metrics = {"write_ms": deque(maxlen=200), "recall_ms": deque(maxlen=200), "retrieval_ms": deque(maxlen=200)}
@@ -103,6 +106,8 @@ class MemoryManager:
             raise MemoryError("Memory database is unavailable") from exc
         self.metrics["write_ms"].append((perf_counter() - started) * 1000)
         LOGGER.info("created id=%s type=%s", record.id, record.type.value)
+        if self.event_bus:
+            self.event_bus.emit(EventType.MEMORY_CREATED, "memory", {"id": record.id, "type": record.type.value, "key": record.key})
         return record
 
     def recall(self, key: str, memory_type: MemoryType | str | None = None) -> list[MemoryRecord]:
@@ -117,6 +122,8 @@ class MemoryManager:
             return []
         self.metrics["recall_ms"].append((perf_counter() - started) * 1000)
         LOGGER.info("recalled count=%d", len(records))
+        if self.event_bus:
+            self.event_bus.emit(EventType.MEMORY_RECALLED, "memory", {"count": len(records), "key": key})
         return records
 
     def forget(self, key: str, memory_type: MemoryType | str | None = None) -> int:
@@ -130,6 +137,8 @@ class MemoryManager:
             return 0
         for memory_id in ids:
             LOGGER.info("forgotten id=%s", memory_id)
+            if self.event_bus:
+                self.event_bus.emit(EventType.MEMORY_REMOVED, "memory", {"id": memory_id, "key": key})
         return len(ids)
 
     def search(self, query: str, limit: int | None = None) -> list[MemoryRecord]:
@@ -143,6 +152,8 @@ class MemoryManager:
             return []
         self.metrics["retrieval_ms"].append((perf_counter() - started) * 1000)
         LOGGER.info("recalled count=%d", len(records))
+        if self.event_bus:
+            self.event_bus.emit(EventType.MEMORY_RECALLED, "memory", {"count": len(records), "query_terms": len(keywords(query))})
         return records
 
     def list_memories(self, memory_type: MemoryType | str | None = None) -> list[MemoryRecord]:

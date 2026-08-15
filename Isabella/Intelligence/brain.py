@@ -21,6 +21,7 @@ from Isabella.Memory.retrieval import (
 from Isabella.Context import ContextManager
 from Isabella.Skills.base import RiskLevel
 from Isabella.Vision import VisionManager
+from Isabella.Events import EventPriority, EventType, reset_correlation_id, set_correlation_id
 
 
 LOGGER = logging.getLogger("BRAIN")
@@ -28,10 +29,11 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None) -> None:
         self.llm = llm
         self.router = router or Router()
-        self.planner = planner or Planner(router=self.router)
+        self.event_bus = event_bus
+        self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory
         self.context = context
@@ -40,23 +42,24 @@ class Brain:
         self.startup_metrics: dict[str, float] = {}
 
     @classmethod
-    def from_config(cls, path: Path | None = None) -> "Brain":
+    def from_config(cls, path: Path | None = None, event_bus=None) -> "Brain":
         started = perf_counter()
         config_started = perf_counter()
         config = load_intelligence_config(path)
         config_ms = (perf_counter() - config_started) * 1000
         router = Router()
-        memory = MemoryManager.from_config()
-        context = ContextManager.from_config(memory=memory)
-        vision = VisionManager.from_config(context=context)
+        memory = MemoryManager.from_config(event_bus=event_bus)
+        context = ContextManager.from_config(memory=memory, event_bus=event_bus)
+        vision = VisionManager.from_config(context=context, event_bus=event_bus)
         brain = cls(
             OllamaProvider(config),
             router=router,
-            planner=Planner(max_steps=int(config["max_plan_steps"]), router=router),
-            registry=build_default_registry(vision),
+            planner=Planner(max_steps=int(config["max_plan_steps"]), router=router, event_bus=event_bus),
+            registry=build_default_registry(vision, event_bus=event_bus),
             memory=memory,
             context=context,
             vision=vision,
+            event_bus=event_bus,
         )
         brain.startup_metrics = {
             "intelligence_config_ms": config_ms,
@@ -65,6 +68,36 @@ class Brain:
         return brain
 
     def process(
+        self,
+        text: str,
+        intent: Intent | None = None,
+        *,
+        request_id: str = "direct",
+        input_source: str = "text",
+        router_ms: float | None = None,
+    ) -> BrainResponse:
+        token = set_correlation_id(request_id)
+        if self.event_bus:
+            self.event_bus.emit(EventType.BRAIN_STARTED, "brain", {"input_source": input_source})
+        try:
+            response = self._process_internal(text, intent, request_id=request_id, input_source=input_source, router_ms=router_ms)
+            if self.event_bus:
+                self.event_bus.emit(
+                    EventType.BRAIN_COMPLETED, "brain",
+                    {"response_type": response.response_type.value, "status": "completed"},
+                )
+            return response
+        except Exception as exc:
+            if self.event_bus:
+                self.event_bus.emit(
+                    EventType.BRAIN_FAILED, "brain", {"error": type(exc).__name__},
+                    priority=EventPriority.HIGH,
+                )
+            raise
+        finally:
+            reset_correlation_id(token)
+
+    def _process_internal(
         self,
         text: str,
         intent: Intent | None = None,
@@ -299,6 +332,8 @@ class Brain:
     def shutdown(self) -> None:
         if self.vision:
             self.vision.shutdown()
+        if self.context:
+            self.context.shutdown()
         if self.memory:
             self.memory.close()
         close = getattr(self.llm, "close", None)

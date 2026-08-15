@@ -12,6 +12,7 @@ from Isabella.Core.config import ConfigurationError, PROJECT_ROOT
 from .camera import CameraCapture
 from .models import ImageCapture, VisionResult
 from .screen import ScreenCapturer
+from Isabella.Events import EventType
 
 
 LOGGER = logging.getLogger("VISION")
@@ -38,10 +39,11 @@ def load_vision_config(path: Path | None = None) -> dict[str, Any]:
 
 
 class VisionManager:
-    def __init__(self, config: dict[str, Any], screen=None, camera=None, context=None) -> None:
+    def __init__(self, config: dict[str, Any], screen=None, camera=None, context=None, event_bus=None) -> None:
         self.config = config
         self.enabled = bool(config["enabled"])
         self.context = context
+        self.event_bus = event_bus
         width, height = int(config["max_image_width"]), int(config["max_image_height"])
         self.screen = screen or ScreenCapturer(width, height)
         self.camera = camera or CameraCapture(config.get("camera_device"), width, height)
@@ -50,10 +52,11 @@ class VisionManager:
         self.metrics = {"screen_capture_ms": self.screen.latencies_ms, "camera_capture_ms": self.camera.latencies_ms}
 
     @classmethod
-    def from_config(cls, context=None, path: Path | None = None) -> "VisionManager":
-        return cls(load_vision_config(path), context=context)
+    def from_config(cls, context=None, path: Path | None = None, event_bus=None) -> "VisionManager":
+        return cls(load_vision_config(path), context=context, event_bus=event_bus)
 
     def capture_screen(self, screen_index: int = 0) -> VisionResult:
+        self._emit_started("SCREEN")
         if not self.enabled or not self.config["screen_capture_enabled"]:
             return VisionResult(False, "Captura de tela está desativada.", error_code="SCREEN_DISABLED")
         try:
@@ -61,9 +64,10 @@ class VisionManager:
             return self._success(capture, "Captura de tela realizada.")
         except Exception as exc:
             LOGGER.warning("screen_capture_failed error=%s", type(exc).__name__)
-            return VisionResult(False, "Não foi possível capturar a tela.", error_code="SCREEN_CAPTURE_FAILED")
+            return self._failure("Não foi possível capturar a tela.", "SCREEN_CAPTURE_FAILED", "SCREEN")
 
     def capture_active_window(self) -> VisionResult:
+        self._emit_started("ACTIVE_WINDOW")
         if not self.enabled or not self.config["screen_capture_enabled"]:
             return VisionResult(False, "Captura de janela está desativada.", error_code="SCREEN_DISABLED")
         try:
@@ -71,9 +75,10 @@ class VisionManager:
             return self._success(capture, "Captura da janela ativa realizada.")
         except Exception as exc:
             LOGGER.warning("active_window_capture_failed error=%s", type(exc).__name__)
-            return VisionResult(False, "Não foi possível capturar a janela ativa.", error_code="ACTIVE_WINDOW_CAPTURE_FAILED")
+            return self._failure("Não foi possível capturar a janela ativa.", "ACTIVE_WINDOW_CAPTURE_FAILED", "ACTIVE_WINDOW")
 
     def capture_camera(self) -> VisionResult:
+        self._emit_started("CAMERA")
         if not self.enabled or not self.config["camera_enabled"]:
             return VisionResult(False, "Câmera está desativada.", error_code="CAMERA_DISABLED")
         try:
@@ -81,7 +86,7 @@ class VisionManager:
             return self._success(capture, "Imagem da câmera capturada.")
         except Exception as exc:
             LOGGER.warning("camera_capture_failed error=%s", type(exc).__name__)
-            return VisionResult(False, "Não foi possível capturar uma imagem da câmera.", error_code="CAMERA_UNAVAILABLE")
+            return self._failure("Não foi possível capturar uma imagem da câmera.", "CAMERA_UNAVAILABLE", "CAMERA")
         finally:
             self.camera.close()
 
@@ -90,6 +95,12 @@ class VisionManager:
             self._temporary_paths.append(capture.path)
             while len(self._temporary_paths) > 5:
                 self._remove(self._temporary_paths.popleft())
+        payload = {
+            "source": capture.source.value, "timestamp": capture.timestamp,
+            "active_window": capture.active_window, "width": capture.width, "height": capture.height,
+        }
+        if self.event_bus:
+            self.event_bus.emit(EventType.VISION_CAPTURE_COMPLETED, "vision", payload)
         if self.context:
             self.context.update(
                 last_vision_source=capture.source.value,
@@ -98,6 +109,15 @@ class VisionManager:
             )
         LOGGER.info("captured source=%s width=%d height=%d", capture.source.value, capture.width, capture.height)
         return VisionResult(True, message, capture)
+
+    def _emit_started(self, source: str) -> None:
+        if self.event_bus:
+            self.event_bus.emit(EventType.VISION_CAPTURE_STARTED, "vision", {"source": source})
+
+    def _failure(self, message: str, error_code: str, source: str) -> VisionResult:
+        if self.event_bus:
+            self.event_bus.emit(EventType.VISION_CAPTURE_FAILED, "vision", {"source": source, "error_code": error_code})
+        return VisionResult(False, message, error_code=error_code)
 
     def health_check(self, check_camera: bool = False) -> dict[str, bool | None]:
         return {

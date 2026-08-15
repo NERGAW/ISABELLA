@@ -4,6 +4,7 @@ import logging
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
 from Isabella.Intelligence.models import SkillRequest
+from Isabella.Events import EventType
 from .models import MessageRole, MessageType, SUBSYSTEMS, UIMessage, UIState
 from .workers import BrainWorker, FunctionWorker
 
@@ -36,8 +37,27 @@ class InterfaceController(QObject):
         self.thread_pool.setMaxThreadCount(1)
         self._workers: set[object] = set()
         self._request_sequence = 0
+        self._active_correlation_id: str | None = None
+        self.event_bus = getattr(app, "event_bus", None)
         self.voice_command_received.connect(self.submit_voice_text)
         self.tts_speaking_received.connect(self.set_tts_speaking)
+        if self.event_bus:
+            self.event_bus.subscribe("tts.*", self._on_tts_event)
+            self.event_bus.subscribe("vision.*", self._on_vision_event)
+
+    def _on_tts_event(self, event) -> None:
+        if event.type == EventType.TTS_STARTED.value:
+            self.tts_speaking_received.emit(True)
+        elif event.type in {
+            EventType.TTS_COMPLETED.value, EventType.TTS_STOPPED.value, EventType.TTS_FAILED.value,
+        }:
+            self.tts_speaking_received.emit(False)
+        status = "ERROR" if event.type == EventType.TTS_FAILED.value else "ONLINE"
+        self.subsystem_changed.emit("VOICE OUTPUT", status)
+
+    def _on_vision_event(self, event) -> None:
+        status = "ERROR" if event.type == EventType.VISION_CAPTURE_FAILED.value else "ONLINE"
+        self.subsystem_changed.emit("VISION", status)
 
     def start_services(self) -> None:
         self.update_subsystem("CORE", "ONLINE")
@@ -91,8 +111,14 @@ class InterfaceController(QObject):
         self._set_busy(True)
         self.set_state(UIState.THINKING)
         self._request_sequence += 1
+        request_id = f"ui-{self._request_sequence:06d}"
+        self._active_correlation_id = request_id
+        if self.event_bus and from_voice:
+            self.event_bus.emit(
+                EventType.VOICE_COMMAND, "ui", {"command": cleaned}, correlation_id=request_id,
+            )
         worker = BrainWorker(
-            self.brain, cleaned, request_id=f"ui-{self._request_sequence:06d}",
+            self.brain, cleaned, request_id=request_id,
             input_source="voice" if from_voice else "text",
         )
         worker.signals.phase.connect(lambda phase: self.set_state(UIState(phase)))
@@ -112,7 +138,10 @@ class InterfaceController(QObject):
             request = response.skill_request or SkillRequest(pending.skill_id, pending.data["arguments"])
             self.confirmation_required.emit(request)
         else:
-            self.app.speak(response.message)
+            try:
+                self.app.speak(response.message, correlation_id=self._active_correlation_id)
+            except TypeError:
+                self.app.speak(response.message)
         self.set_state(UIState.IDLE)
         context = getattr(self.brain, "context", None)
         if context:
@@ -159,6 +188,12 @@ class InterfaceController(QObject):
         if len(self.messages) > self.message_limit:
             del self.messages[: len(self.messages) - self.message_limit]
         self.message_added.emit(message)
+        if self.event_bus:
+            self.event_bus.emit(
+                EventType.UI_MESSAGE, "ui",
+                {"role": role.value, "type": message_type.value, "text": text},
+                correlation_id=self._active_correlation_id,
+            )
 
     def set_state(self, state: UIState) -> None:
         self.state = state
@@ -201,6 +236,9 @@ class InterfaceController(QObject):
         self.set_state(UIState.IDLE)
 
     def shutdown(self) -> None:
+        if self.event_bus:
+            self.event_bus.unsubscribe("tts.*", self._on_tts_event)
+            self.event_bus.unsubscribe("vision.*", self._on_vision_event)
         self.thread_pool.clear()
         self.thread_pool.waitForDone(5000)
         shutdown = getattr(self.brain, "shutdown", None)

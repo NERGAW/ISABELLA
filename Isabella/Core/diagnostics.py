@@ -17,6 +17,7 @@ def technical_snapshot(app, brain=None, controller=None) -> dict[str, Any]:
     skills_count = len(registry.list()) if hasattr(registry, "list") else len(registry or ())
     voice_queue = getattr(listener, "_audio_queue", None)
     tts_queue = getattr(tts, "_queue", None)
+    event_bus = getattr(app, "event_bus", None)
     return {
         "core_status": getattr(getattr(app, "status", None), "value", "UNKNOWN"),
         "llm_status": (controller.subsystems.get("LLM", "UNKNOWN") if controller else "UNKNOWN"),
@@ -34,6 +35,7 @@ def technical_snapshot(app, brain=None, controller=None) -> dict[str, Any]:
             "tts": tts_queue.qsize() if tts_queue else 0,
             "workers": controller.thread_pool.activeThreadCount() if controller else 0,
         },
+        "events": event_bus.diagnostics() if event_bus else {},
         "cpu_percent": process.cpu_percent(interval=None),
         "ram_mb": process.memory_info().rss / (1024 * 1024),
     }

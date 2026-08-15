@@ -36,6 +36,7 @@ class VoiceListener:
         recorder=None,
         stt=None,
         queue_size: int = 2,
+        event_bus=None,
     ) -> None:
         self.config = config
         self.callback = callback
@@ -51,6 +52,7 @@ class VoiceListener:
         self._capture_thread: threading.Thread | None = None
         self._processing_thread: threading.Thread | None = None
         self.total_latencies_ms: deque[float] = deque(maxlen=200)
+        self.event_bus = event_bus
 
     @classmethod
     def from_config(cls, callback: Callable[[str], object]) -> "VoiceListener":
@@ -61,6 +63,9 @@ class VoiceListener:
             return False
         self._stop_event.clear()
         self.state = ListenerState.LISTENING
+        if self.event_bus:
+            from Isabella.Events import EventType
+            self.event_bus.emit(EventType.VOICE_LISTENING, "voice")
         self._capture_thread = threading.Thread(target=self._capture_loop, name="IsabellaVoiceCapture", daemon=True)
         self._processing_thread = threading.Thread(target=self._processing_loop, name="IsabellaVoiceProcessing", daemon=True)
         self._capture_thread.start()
@@ -113,6 +118,12 @@ class VoiceListener:
                 transcription = self.stt.transcribe(audio)
                 if not transcription.text:
                     continue
+                if self.event_bus:
+                    from Isabella.Events import EventType
+                    self.event_bus.emit(
+                        EventType.VOICE_TRANSCRIPTION, "voice",
+                        {"text": transcription.text, "language": transcription.language},
+                    )
                 wake_started = perf_counter()
                 command = self.wakeword.detect(transcription.text)
                 wake_latency = (perf_counter() - wake_started) * 1000

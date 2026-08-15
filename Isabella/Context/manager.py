@@ -18,6 +18,7 @@ from Isabella.Memory.models import MemoryType
 from Isabella.Memory.retrieval import normalize
 from .models import ActionContext, ContextSnapshot, ResolvedReference, ResultContext, now_iso
 from .providers import WindowsContextProvider
+from Isabella.Events import EventType
 
 
 LOGGER = logging.getLogger("CONTEXT")
@@ -42,11 +43,12 @@ def load_context_config(path: Path | None = None) -> dict[str, Any]:
 
 
 class ContextManager:
-    def __init__(self, config: dict[str, Any], provider=None, memory=None) -> None:
+    def __init__(self, config: dict[str, Any], provider=None, memory=None, event_bus=None) -> None:
         self.config = config
         self.enabled = bool(config.get("enabled", True))
         self.provider = provider or WindowsContextProvider()
         self.memory = memory
+        self.event_bus = event_bus
         self.confidence_threshold = float(config["reference_confidence_threshold"])
         self.refresh_interval = float(config["refresh_interval_seconds"])
         self._lock = threading.RLock()
@@ -59,10 +61,15 @@ class ContextManager:
         self.status = "ONLINE" if self.enabled else "OFFLINE"
         self._snapshot = self._new_snapshot()
         self._apply_project_memory()
+        if self.event_bus:
+            self.event_bus.subscribe(EventType.SKILL_COMPLETED.value, self._on_skill_event)
+            self.event_bus.subscribe(EventType.SKILL_FAILED.value, self._on_skill_event)
+            self.event_bus.subscribe(EventType.VOICE_COMMAND.value, self._on_voice_command)
+            self.event_bus.subscribe(EventType.VISION_CAPTURE_COMPLETED.value, self._on_vision_capture)
 
     @classmethod
-    def from_config(cls, memory=None, path: Path | None = None) -> "ContextManager":
-        return cls(load_context_config(path), memory=memory)
+    def from_config(cls, memory=None, path: Path | None = None, event_bus=None) -> "ContextManager":
+        return cls(load_context_config(path), memory=memory, event_bus=event_bus)
 
     @staticmethod
     def _new_snapshot() -> ContextSnapshot:
@@ -99,7 +106,29 @@ class ContextManager:
             self._snapshot = replace(previous, **values)
         if values.get("active_application") and values["active_application"] != previous.active_application:
             LOGGER.info("active_application=%s", values["active_application"])
+        if self.event_bus:
+            self.event_bus.emit(EventType.CONTEXT_UPDATED, "context", {"fields": sorted(values.keys() - {"timestamp"})})
         return self.get_snapshot()
+
+    def _on_skill_event(self, event) -> None:
+        payload = event.payload
+        self.record_action(payload.get("skill_id", "unknown"), payload.get("arguments", {}), payload.get("risk_level", "UNKNOWN"))
+        self.record_result(
+            bool(payload.get("success")), str(payload.get("message", "")),
+            payload.get("data", {}), str(payload.get("status", "unknown")),
+        )
+
+    def _on_voice_command(self, event) -> None:
+        command = event.payload.get("command")
+        if isinstance(command, str) and command:
+            self.set("last_user_command", command)
+
+    def _on_vision_capture(self, event) -> None:
+        self.update(
+            last_vision_source=event.payload.get("source"),
+            last_capture_timestamp=event.payload.get("timestamp"),
+            last_capture_window=event.payload.get("active_window"),
+        )
 
     def get(self, name: str, default=None):
         if name not in SNAPSHOT_FIELDS:
@@ -218,3 +247,11 @@ class ContextManager:
         if "projeto" in normalized and snapshot.current_project:
             lines.append(f"Projeto atual: {snapshot.current_project}")
         return "\n".join(lines)
+
+    def shutdown(self) -> None:
+        if not self.event_bus:
+            return
+        self.event_bus.unsubscribe(EventType.SKILL_COMPLETED.value, self._on_skill_event)
+        self.event_bus.unsubscribe(EventType.SKILL_FAILED.value, self._on_skill_event)
+        self.event_bus.unsubscribe(EventType.VOICE_COMMAND.value, self._on_voice_command)
+        self.event_bus.unsubscribe(EventType.VISION_CAPTURE_COMPLETED.value, self._on_vision_capture)

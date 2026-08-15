@@ -31,6 +31,7 @@ class IsabellaApp:
         self.voice_listener: Any | None = None
         self.tts_manager: Any | None = None
         self.startup_metrics: dict[str, float] = {}
+        self.event_bus: Any | None = None
 
     def _set_status(self, status: IsabellaStatus) -> None:
         self.status = status
@@ -44,6 +45,10 @@ class IsabellaApp:
         self.config = load_config(self.config_path)
         self.startup_metrics["config_ms"] = (perf_counter() - config_started) * 1000
         self.logger = setup_logging(self.log_path, debug=self.config["debug"])
+        from Isabella.Events import EventBus, EventType
+
+        self.event_bus = EventBus.from_config()
+        self.event_bus.emit(EventType.SYSTEM_STARTED, "core")
 
         print(self.config["full_name"])
         print(self.config["acronym"])
@@ -51,6 +56,7 @@ class IsabellaApp:
         self.logger.info("Configuration loaded.")
         self._set_status(IsabellaStatus.ONLINE)
         self.logger.info("ISABELLA online.")
+        self.event_bus.emit(EventType.SYSTEM_READY, "core")
         self.startup_metrics["core_ms"] = (perf_counter() - total_started) * 1000
         logging.getLogger("PERFORMANCE").info(
             "startup config_ms=%.2f core_ms=%.2f",
@@ -69,7 +75,7 @@ class IsabellaApp:
                 if self.logger:
                     self.logger.info("Voice input disabled by configuration.")
                 return False
-            self.voice_listener = VoiceListener(voice_config, callback)
+            self.voice_listener = VoiceListener(voice_config, callback, event_bus=self.event_bus)
             started = self.voice_listener.start()
             if self.logger:
                 self.logger.info("Voice input started=%s", started)
@@ -109,7 +115,9 @@ class IsabellaApp:
                 if state_callback:
                     state_callback(speaking)
 
-            self.tts_manager = TTSManager(tts_config, on_speaking_change=speaking_changed)
+            self.tts_manager = TTSManager(
+                tts_config, on_speaking_change=speaking_changed, event_bus=self.event_bus,
+            )
             initialized = self.tts_manager.initialize()
             if self.logger:
                 self.logger.info("TTS started=%s", initialized)
@@ -122,8 +130,8 @@ class IsabellaApp:
         finally:
             self.startup_metrics["tts_ms"] = (perf_counter() - started_at) * 1000
 
-    def speak(self, text: str) -> bool:
-        return bool(self.tts_manager and self.tts_manager.speak(text))
+    def speak(self, text: str, correlation_id: str | None = None) -> bool:
+        return bool(self.tts_manager and self.tts_manager.speak(text, correlation_id=correlation_id))
 
     def shutdown(self) -> None:
         """Shut down the application cleanly."""
@@ -131,6 +139,10 @@ class IsabellaApp:
             return
 
         self._set_status(IsabellaStatus.STOPPING)
+        if self.event_bus:
+            from Isabella.Events import EventType
+
+            self.event_bus.emit(EventType.SYSTEM_STOPPING, "core")
         if self.logger:
             self.logger.info("ISABELLA stopping.")
         if self.tts_manager:
@@ -144,3 +156,5 @@ class IsabellaApp:
         self._set_status(IsabellaStatus.OFFLINE)
         if self.logger:
             self.logger.info("ISABELLA offline.")
+        if self.event_bus:
+            self.event_bus.shutdown()
