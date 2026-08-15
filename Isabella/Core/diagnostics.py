@@ -21,6 +21,7 @@ def technical_snapshot(app, brain=None, controller=None) -> dict[str, Any]:
         "core_status": getattr(getattr(app, "status", None), "value", "UNKNOWN"),
         "llm_status": (controller.subsystems.get("LLM", "UNKNOWN") if controller else "UNKNOWN"),
         "memory_status": getattr(getattr(brain, "memory", None), "status", "OFFLINE"),
+        "context_status": getattr(getattr(brain, "context", None), "status", "OFFLINE"),
         "voice_status": getattr(getattr(listener, "state", None), "value", "OFFLINE"),
         "tts_status": getattr(tts, "state", "OFFLINE"),
         "hud_status": getattr(getattr(controller, "state", None), "value", "OFFLINE"),

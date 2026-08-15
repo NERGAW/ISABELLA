@@ -38,4 +38,4 @@ class UIMessage:
     type: MessageType = MessageType.TEXT
 
 
-SUBSYSTEMS = ("CORE", "LLM", "MEMORY", "VOICE INPUT", "VOICE OUTPUT", "SKILLS", "PLANNER")
+SUBSYSTEMS = ("CORE", "LLM", "MEMORY", "CONTEXT", "VOICE INPUT", "VOICE OUTPUT", "SKILLS", "PLANNER")

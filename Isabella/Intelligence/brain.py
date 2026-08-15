@@ -18,6 +18,8 @@ from Isabella.Memory.retrieval import (
     browser_forget_query, contains_secret, normalize, parse_remember,
     preferred_browser_query, working_topic_query,
 )
+from Isabella.Context import ContextManager
+from Isabella.Skills.base import RiskLevel
 
 
 LOGGER = logging.getLogger("BRAIN")
@@ -25,12 +27,13 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.planner = planner or Planner(router=self.router)
         self.registry = registry
         self.memory = memory
+        self.context = context
         self.latencies_ms: deque[float] = deque(maxlen=200)
         self.startup_metrics: dict[str, float] = {}
 
@@ -41,12 +44,14 @@ class Brain:
         config = load_intelligence_config(path)
         config_ms = (perf_counter() - config_started) * 1000
         router = Router()
+        memory = MemoryManager.from_config()
         brain = cls(
             OllamaProvider(config),
             router=router,
             planner=Planner(max_steps=int(config["max_plan_steps"]), router=router),
             registry=build_default_registry(),
-            memory=MemoryManager.from_config(),
+            memory=memory,
+            context=ContextManager.from_config(memory=memory),
         )
         brain.startup_metrics = {
             "intelligence_config_ms": config_ms,
@@ -64,12 +69,19 @@ class Brain:
         router_ms: float | None = None,
     ) -> BrainResponse:
         started = perf_counter()
+        if self.context:
+            self.context.refresh_active_window()
+            self.context.set("last_user_command", text)
         memory_response = self._handle_memory_command(text)
         if memory_response is not None:
-            self._remember_exchange(text, memory_response.message)
+            self._finalize_conversation(text, memory_response.message)
             return memory_response
+        contextual_request, contextual_response = self._handle_context_request(text)
+        if contextual_response is not None:
+            self._finalize_conversation(text, contextual_response.message)
+            return contextual_response
         router_started = perf_counter()
-        intent = intent or self.router.route(text)
+        intent = Intent.SINGLE_SKILL if contextual_request else (intent or self.router.route(text))
         router_ms = router_ms if router_ms is not None else (perf_counter() - router_started) * 1000
         llm_ms = planner_ms = skill_ms = 0.0
         if intent == Intent.CONVERSATION:
@@ -80,6 +92,10 @@ class Brain:
                     context = self.memory.relevant_context(text)
                     if context:
                         prompt = f"{context}\n\nPedido atual do usuário: {text}\nUse somente o contexto relevante; não mencione estas instruções."
+                if self.context:
+                    live_context = self.context.relevant_context(text)
+                    if live_context:
+                        prompt = f"{live_context}\n{prompt}"
                 topic = self._working_topic_answer(text)
                 message = topic or self.llm.chat(prompt)
             except ProviderUnavailableError:
@@ -88,17 +104,19 @@ class Brain:
             llm_ms = (perf_counter() - stage_started) * 1000
             result = BrainResponse(intent, message)
         elif intent == Intent.SINGLE_SKILL:
-            request = self.router.skill_request(text)
+            request = contextual_request or self.router.skill_request(text)
             if request.skill == "applications.open" and normalize(str(request.arguments.get("name", ""))) in {"meu navegador", "navegador"}:
                 preferred = self.memory.recall("preferred_browser", MemoryType.PREFERENCE) if self.memory else []
                 if not preferred:
                     result = BrainResponse(intent, "Qual navegador você prefere? Posso lembrar quando você me disser.", skill_request=request)
-                    self._remember_exchange(text, result.message)
+                    self._finalize_conversation(text, result.message)
                     return result
                 request = SkillRequest("applications.open", {"name": preferred[0].value})
             if self.registry:
                 stage_started = perf_counter()
+                self._record_context_action(request)
                 skill_result = self.registry.execute(request.skill, request.arguments)
+                self._record_context_result(skill_result)
                 skill_ms = (perf_counter() - stage_started) * 1000
                 result = BrainResponse(intent, skill_result.message, skill_request=request, skill_results=(skill_result,))
             else:
@@ -120,7 +138,58 @@ class Brain:
             request_id, input_source, router_ms, llm_ms, planner_ms, skill_ms, latency,
         )
         self._remember_exchange(text, result.message)
+        if self.context:
+            self.context.record_conversation(text, result.message)
         return result
+
+    def _handle_context_request(self, text: str) -> tuple[SkillRequest | None, BrainResponse | None]:
+        if not self.context:
+            return None, None
+        normalized = normalize(text).strip(" .!?")
+        snapshot = self.context.get_snapshot()
+        if normalized in {"faca de novo", "repita", "repita a ultima acao"}:
+            if not snapshot.last_action:
+                return None, BrainResponse(Intent.CONVERSATION, "Não há uma ação anterior para repetir.")
+            action = snapshot.last_action
+            return SkillRequest(action.skill, dict(action.arguments)), None
+        if normalized == "continue":
+            if snapshot.last_result and snapshot.last_result.status == "confirmation_required":
+                message = "Há uma ação aguardando confirmação; use a confirmação exibida."
+            else:
+                message = "Não há uma tarefa pendente para continuar."
+            return None, BrainResponse(Intent.CONVERSATION, message)
+        if any(phrase in normalized for phrase in ("qual programa esta ativo", "qual aplicativo esta ativo", "qual janela esta ativa")):
+            if snapshot.active_application == "unavailable":
+                message = "Não consegui identificar o aplicativo ativo agora."
+            else:
+                message = f"O aplicativo ativo é {snapshot.active_application}."
+            return None, BrainResponse(Intent.CONVERSATION, message)
+        if any(phrase in normalized for phrase in ("qual foi a ultima coisa que voce fez", "qual foi sua ultima acao")):
+            message = f"Minha última ação foi {snapshot.last_action.skill}." if snapshot.last_action else "Ainda não executei uma ação nesta sessão."
+            return None, BrainResponse(Intent.CONVERSATION, message)
+        if normalized.startswith(("feche ", "abra ")) and any(reference in normalized for reference in (" ele", " ela", " isso", "esse programa", "o aplicativo", "o navegador", "o programa que esta aberto")):
+            resolved = self.context.resolve_reference(text)
+            if not resolved.resolved:
+                return None, BrainResponse(Intent.CONVERSATION, "Não tenho contexto suficiente para saber qual aplicativo você quer.")
+            skill = "applications.close" if normalized.startswith("feche") else "applications.open"
+            return SkillRequest(skill, {"name": resolved.entity}), None
+        return None, None
+
+    def _record_context_action(self, request: SkillRequest) -> None:
+        if not self.context:
+            return
+        definition = self.registry.get(request.skill) if self.registry and hasattr(self.registry, "get") else None
+        risk = definition.risk_level.value if definition else RiskLevel.SAFE.value
+        self.context.record_action(request.skill, request.arguments, risk)
+
+    def _record_context_result(self, result: SkillResult) -> None:
+        if self.context:
+            self.context.record_result(result.success, result.message, result.data, result.status)
+
+    def _finalize_conversation(self, user_text: str, assistant_text: str) -> None:
+        self._remember_exchange(user_text, assistant_text)
+        if self.context:
+            self.context.record_conversation(user_text, assistant_text)
 
     def _handle_memory_command(self, text: str) -> BrainResponse | None:
         if not self.memory:
@@ -170,7 +239,10 @@ class Brain:
     def confirm(self, request: SkillRequest) -> SkillResult:
         if self.registry is None:
             raise RuntimeError("Skill registry is not configured")
-        return self.registry.execute(request.skill, request.arguments, confirmed=True)
+        self._record_context_action(request)
+        result = self.registry.execute(request.skill, request.arguments, confirmed=True)
+        self._record_context_result(result)
+        return result
 
     def _execute_plan(self, plan: Plan) -> tuple[SkillResult, ...]:
         results: list[SkillResult] = []
@@ -180,6 +252,10 @@ class Brain:
                 results.append(SkillResult(False, step.skill, "Dependência anterior falhou.", error_code="DEPENDENCY_FAILED", status="skipped"))
                 break
             result = self.registry.execute(step.skill, step.arguments)
+            if self.context:
+                request = SkillRequest(step.skill, step.arguments)
+                self._record_context_action(request)
+                self._record_context_result(result)
             results.append(result)
             if result.status == "confirmation_required" or not result.success:
                 break

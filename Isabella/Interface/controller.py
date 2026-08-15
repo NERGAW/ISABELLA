@@ -20,6 +20,7 @@ class InterfaceController(QObject):
     backend_latency = Signal(float)
     voice_command_received = Signal(str)
     tts_speaking_received = Signal(bool)
+    context_changed = Signal(object)
 
     def __init__(self, app, brain, message_limit: int = 100) -> None:
         super().__init__()
@@ -44,13 +45,23 @@ class InterfaceController(QObject):
         self.update_subsystem("PLANNER", "ONLINE")
         memory = getattr(self.brain, "memory", None)
         self.update_subsystem("MEMORY", getattr(memory, "status", "OFFLINE"))
+        context = getattr(self.brain, "context", None)
+        self.update_subsystem("CONTEXT", getattr(context, "status", "OFFLINE"))
+        if context:
+            context.refresh_active_window(force=True)
+            context.refresh_devices()
         voice_ok = self.app.start_voice(self.voice_command_received.emit)
         self.update_subsystem("VOICE INPUT", "ONLINE" if voice_ok else "DEGRADED")
+        if context:
+            context.set("voice_state", UIState.LISTENING.value if voice_ok else UIState.ERROR.value)
+            context.set_system_state("HUD", "ONLINE")
         tts_ok = self.app.start_tts(state_callback=self.tts_speaking_received.emit)
         self.update_subsystem("VOICE OUTPUT", "ONLINE" if tts_ok else "DEGRADED")
         self._start_health_check()
         self.add_message(MessageRole.SYSTEM, "Interface pronta.", MessageType.STATUS)
         LOGGER.info("started")
+        if context:
+            self.context_changed.emit(context.get_snapshot())
 
     def _start_health_check(self) -> None:
         worker = FunctionWorker(self.brain.llm.health_check)
@@ -101,6 +112,9 @@ class InterfaceController(QObject):
         else:
             self.app.speak(response.message)
         self.set_state(UIState.IDLE)
+        context = getattr(self.brain, "context", None)
+        if context:
+            self.context_changed.emit(context.get_snapshot())
 
     @Slot(object)
     def confirm_critical(self, request: SkillRequest) -> None:
@@ -148,6 +162,9 @@ class InterfaceController(QObject):
         self.state = state
         self.state_changed.emit(state.value)
         LOGGER.info("state changed=%s", state.value)
+        context = getattr(self.brain, "context", None)
+        if context:
+            context.set("voice_state", state.value)
 
     @Slot(bool)
     def set_tts_speaking(self, speaking: bool) -> None:
@@ -159,6 +176,9 @@ class InterfaceController(QObject):
     def update_subsystem(self, name: str, status: str) -> None:
         self.subsystems[name] = status
         self.subsystem_changed.emit(name, status)
+        context = getattr(self.brain, "context", None)
+        if context and name != "CONTEXT":
+            context.set_system_state(name, status)
 
     def _set_busy(self, busy: bool) -> None:
         self.busy = busy

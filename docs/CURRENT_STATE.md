@@ -21,6 +21,9 @@
 - Memória persistente SQLite seletiva, memória de sessão em RAM e recuperação
   limitada por chave, tags e palavras-chave.
 - Preferência persistente de navegador integrada à abertura de aplicativos.
+- Context Engine volátil com janela ativa, projeto, dispositivos, estados,
+  última ação/resultado e resolução conservadora de referências.
+- Repetição segura de ações sem contornar o nível de risco da Skill.
 
 ## Limites conhecidos
 

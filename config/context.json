@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "active_window_lookup": true,
+  "refresh_interval_seconds": 1.0,
+  "reference_confidence_threshold": 0.8
+}

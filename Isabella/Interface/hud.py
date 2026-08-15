@@ -105,6 +105,12 @@ class IsabellaHUD(QMainWindow):
             row.addWidget(label)
             side_layout.addLayout(row)
         side_layout.addStretch()
+        self.active_app = QLabel("App ativo: —", objectName="muted")
+        self.current_project = QLabel("Projeto: —", objectName="muted")
+        self.active_app.setWordWrap(True)
+        self.current_project.setWordWrap(True)
+        side_layout.addWidget(self.active_app)
+        side_layout.addWidget(self.current_project)
         self.latency = QLabel("Latência: —", objectName="muted")
         side_layout.addWidget(self.latency)
         splitter.addWidget(side)
@@ -140,6 +146,7 @@ class IsabellaHUD(QMainWindow):
         self.controller.busy_changed.connect(self.set_busy)
         self.controller.confirmation_required.connect(self.confirm_action)
         self.controller.backend_latency.connect(lambda value: self.latency.setText(f"Latência: {value:.0f} ms"))
+        self.controller.context_changed.connect(self.set_context)
 
     def _submit(self) -> None:
         text = self.input.toPlainText().strip()
@@ -182,6 +189,11 @@ class IsabellaHUD(QMainWindow):
         self.input.setDisabled(busy)
         if not busy:
             self.input.setFocus()
+
+    def set_context(self, snapshot) -> None:
+        application = snapshot.active_application if snapshot.active_application != "unavailable" else "—"
+        self.active_app.setText(f"App ativo: {application}")
+        self.current_project.setText(f"Projeto: {snapshot.current_project or '—'}")
 
     def confirm_action(self, request) -> None:
         answer = QMessageBox.question(self, "Confirmar ação crítica", f"Permitir a ação '{request.skill}'?",
