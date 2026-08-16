@@ -245,4 +245,4 @@ class NodeManager:
 
     def _emit(self, event_type, node: Node) -> None:
         if self.event_bus:
-            self.event_bus.emit(event_type, "nodes", {"node_id": node.node_id, "node_type": node.node_type.value, "status": node.status.value, "trust": node.trust.value})
+            self.event_bus.emit(event_type, "nodes", {"node_id": node.node_id, "name": node.name, "node_type": node.node_type.value, "status": node.status.value, "trust": node.trust.value, "capabilities": list(node.capabilities)})

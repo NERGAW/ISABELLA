@@ -24,6 +24,7 @@ from Isabella.Vision import VisionManager
 from Isabella.Events import EventPriority, EventType, reset_correlation_id, set_correlation_id
 from Isabella.Security import ConfirmationRequest, SecurityPolicyEngine
 from Isabella.Diagnostics import DiagnosticsManager
+from Isabella.Knowledge.retrieval import relationship_question
 
 
 LOGGER = logging.getLogger("BRAIN")
@@ -31,7 +32,7 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None, scheduler=None, api=None, nodes=None, transport=None, sessions=None, notifications=None, home=None, modes=None, orchestrator=None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None, scheduler=None, api=None, nodes=None, transport=None, sessions=None, notifications=None, home=None, modes=None, orchestrator=None, knowledge=None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.event_bus = event_bus
@@ -50,6 +51,7 @@ class Brain:
         self.home = home
         self.modes = modes
         self.orchestrator = orchestrator
+        self.knowledge = knowledge
         self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory
@@ -86,6 +88,10 @@ class Brain:
         registry.register(create_mode_skill(brain.modes))
         from Isabella.Agents import AgentOrchestrator
         brain.orchestrator = AgentOrchestrator(event_bus=event_bus, max_agent_hops=3)
+        from Isabella.Knowledge import KnowledgeGraph
+        brain.knowledge = KnowledgeGraph.from_config(event_bus=event_bus)
+        brain.knowledge.seed(registry.list())
+        memory.knowledge = brain.knowledge
         from Isabella.MCP import MCPManager
         brain.mcp = MCPManager.from_config(skill_registry=registry, event_bus=event_bus)
         from Isabella.Research import ResearchManager
@@ -195,6 +201,10 @@ class Brain:
         if self.context:
             self.context.refresh_active_window()
             self.context.set("last_user_command", text)
+        if self.knowledge and relationship_question(text):
+            result = BrainResponse(Intent.CONVERSATION, self.knowledge.answer(text))
+            self._finalize_conversation(text, result.message)
+            return result
         schedule_response = self._handle_schedule_command(text, request_id)
         if schedule_response is not None:
             self._finalize_conversation(text, schedule_response.message)
@@ -534,6 +544,8 @@ class Brain:
             self.context.shutdown()
         if self.memory:
             self.memory.close()
+        if self.knowledge:
+            self.knowledge.close()
         close = getattr(self.llm, "close", None)
         if close:
             close()

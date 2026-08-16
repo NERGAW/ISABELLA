@@ -119,3 +119,6 @@ class EventType(str, Enum):
     AGENT_COMPLETED = "agent.completed"
     AGENT_FAILED = "agent.failed"
     AGENT_DELEGATED = "agent.delegated"
+    KNOWLEDGE_ENTITY_CREATED = "knowledge.entity_created"
+    KNOWLEDGE_RELATION_CREATED = "knowledge.relation_created"
+    KNOWLEDGE_RELATION_REMOVED = "knowledge.relation_removed"

@@ -50,6 +50,7 @@ class MemoryManager:
         self.status = "OFFLINE" if not self.enabled else "STARTING"
         self.database = database
         self.event_bus = event_bus
+        self.knowledge = None
         self.working_memory: deque[WorkingMessage] = deque(
             maxlen=int(config["working_memory_max_messages"])
         )
@@ -114,6 +115,8 @@ class MemoryManager:
         LOGGER.info("created id=%s type=%s", record.id, record.type.value)
         if self.event_bus:
             self.event_bus.emit(EventType.MEMORY_CREATED, "memory", {"id": record.id, "type": record.type.value, "key": record.key})
+        if self.knowledge and source == "user_explicit":
+            self.knowledge.ingest_memory(record)
         return record
 
     def recall(self, key: str, memory_type: MemoryType | str | None = None) -> list[MemoryRecord]:

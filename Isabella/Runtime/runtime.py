@@ -223,6 +223,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.register(Service("Context", ("Memory",), start_hook=lambda: bool(self.brain.context), health_hook=self._health_context))
         self.register(Service("Modes", ("Context", "Security"), start_hook=lambda: bool(self.brain and self.brain.modes), health_hook=lambda: bool(self.brain and self.brain.modes)))
         self.register(Service("Agents", ("Modes", "Skills", "Security"), start_hook=lambda: bool(self.brain and self.brain.orchestrator), health_hook=lambda: bool(self.brain and self.brain.orchestrator)))
+        self.register(Service("Knowledge", ("Memory", "Context", "Skills"), start_hook=lambda: bool(self.brain and self.brain.knowledge), health_hook=lambda: bool(self.brain and self.brain.knowledge and self.brain.knowledge.storage.health_check())))
         self.register(Service("Skills", ("Security",), start_hook=lambda: bool(self.brain.registry), health_hook=lambda: bool(self.brain and self.brain.registry and self.brain.registry.list())))
         self.register(Service("Skill Forge", ("Skills", "Security"), start_hook=self._start_skillforge, stop_hook=self._stop_skillforge, health_hook=self._health_skillforge))
         self.register(Service("Automations", ("Skills", "Security", "Event Bus"), start_hook=self._start_automations, stop_hook=self._stop_automations, health_hook=self._health_automations))

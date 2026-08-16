@@ -235,6 +235,11 @@ class DiagnosticsManager:
                 details["registered"] = len(orchestrator.registry.list())
                 status = HealthStatus.DEGRADED if sum(details["failures"].values()) else HealthStatus.ONLINE
                 return status, details
+            if subsystem is Subsystem.KNOWLEDGE:
+                graph = getattr(brain, "knowledge", None)
+                if graph is None: return HealthStatus.UNKNOWN, {"bound": False}
+                details = graph.diagnostics()
+                return (HealthStatus.ONLINE if details["database_accessible"] else HealthStatus.ERROR), details
             return HealthStatus.UNKNOWN, {}
 
         result = health(subsystem, probe)
