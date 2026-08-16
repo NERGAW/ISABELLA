@@ -31,7 +31,7 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None, scheduler=None, api=None, nodes=None, transport=None, sessions=None, notifications=None, home=None, modes=None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None, scheduler=None, api=None, nodes=None, transport=None, sessions=None, notifications=None, home=None, modes=None, orchestrator=None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.event_bus = event_bus
@@ -49,6 +49,7 @@ class Brain:
         self.notifications = notifications
         self.home = home
         self.modes = modes
+        self.orchestrator = orchestrator
         self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory
@@ -83,6 +84,8 @@ class Brain:
         from Isabella.Modes import ModeManager
         brain.modes = ModeManager.from_config(event_bus=event_bus, context=context)
         registry.register(create_mode_skill(brain.modes))
+        from Isabella.Agents import AgentOrchestrator
+        brain.orchestrator = AgentOrchestrator(event_bus=event_bus, max_agent_hops=3)
         from Isabella.MCP import MCPManager
         brain.mcp = MCPManager.from_config(skill_registry=registry, event_bus=event_bus)
         from Isabella.Research import ResearchManager
@@ -137,6 +140,49 @@ class Brain:
             reset_correlation_id(token)
 
     def _process_internal(
+        self, text: str, intent: Intent | None = None, *, request_id: str = "direct",
+        input_source: str = "text", router_ms: float | None = None,
+    ) -> BrainResponse:
+        if not self.orchestrator:
+            return self._process_without_agents(text, intent, request_id=request_id, input_source=input_source, router_ms=router_ms)
+        mode = self.modes.apply_policy(input_source=input_source).mode_id if self.modes else "NORMAL"
+        selected = self.orchestrator.select(text, intent=intent, mode=mode)
+        if not selected:
+            return self._process_without_agents(text, intent, request_id=request_id, input_source=input_source, router_ms=router_ms)
+        snapshot = self.context.get_snapshot() if self.context else None
+        shared = vars(snapshot) if snapshot else {}
+        if selected == ("VISION_AGENT", "RESEARCH_AGENT"):
+            return self._process_visual_research(text, selected, shared)
+        outputs, failure = self.orchestrator.execute(
+            selected, text,
+            lambda _agent, _task: self._process_without_agents(text, intent, request_id=request_id, input_source=input_source, router_ms=router_ms),
+            context=shared,
+        )
+        if failure:
+            return BrainResponse(Intent.CONVERSATION, "A especialização interna falhou, mas o Core continua disponível.")
+        return outputs[-1]
+
+    def _process_visual_research(self, text: str, selected, shared) -> BrainResponse:
+        state = {}
+        def handle(agent, _task):
+            if agent.id == "VISION_AGENT":
+                result = self.vision.analyze_screen(text, active_window=True)
+                if not result.success: raise RuntimeError(result.error_code or "VISION_FAILED")
+                state["vision"] = result.message
+                return result.message
+            policy = self.modes.apply_policy() if self.modes else None
+            if policy and not policy.research_allowed: raise PermissionError("RESEARCH_DISABLED_BY_MODE")
+            result = self.research.search(f"{text}\nContexto visual observado: {state['vision']}")
+            state["research"] = result
+            return result.answer
+        outputs, failure = self.orchestrator.execute(selected, text, handle, context=shared)
+        if failure:
+            message = state.get("vision") or "Não foi possível concluir a análise visual e a pesquisa."
+            return BrainResponse(Intent.VISION, message)
+        research = state["research"]
+        return BrainResponse(Intent.RESEARCH, f"{state['vision']}\n\n{research.answer}", sources=research.sources)
+
+    def _process_without_agents(
         self,
         text: str,
         intent: Intent | None = None,

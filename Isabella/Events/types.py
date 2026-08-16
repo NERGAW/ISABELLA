@@ -115,3 +115,7 @@ class EventType(str, Enum):
     MODE_CHANGING = "mode.changing"
     MODE_CHANGED = "mode.changed"
     MODE_FAILED = "mode.failed"
+    AGENT_STARTED = "agent.started"
+    AGENT_COMPLETED = "agent.completed"
+    AGENT_FAILED = "agent.failed"
+    AGENT_DELEGATED = "agent.delegated"

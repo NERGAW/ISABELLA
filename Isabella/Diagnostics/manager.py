@@ -227,6 +227,14 @@ class DiagnosticsManager:
                 details = home.health_check()
                 status = HealthStatus.ERROR if details.get("gateway") != "ONLINE" else HealthStatus.DEGRADED if details.get("broker") == "OFFLINE" or details.get("telemetry_errors") else HealthStatus.ONLINE
                 return status, details
+            if subsystem is Subsystem.AGENTS:
+                orchestrator = getattr(brain, "orchestrator", None)
+                if orchestrator is None:
+                    return HealthStatus.UNKNOWN, {"registered": 0, "bound": False}
+                details = orchestrator.diagnostics()
+                details["registered"] = len(orchestrator.registry.list())
+                status = HealthStatus.DEGRADED if sum(details["failures"].values()) else HealthStatus.ONLINE
+                return status, details
             return HealthStatus.UNKNOWN, {}
 
         result = health(subsystem, probe)

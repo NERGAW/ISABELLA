@@ -106,6 +106,7 @@ class ControlCenterController(QObject):
                 nodes=nodes, home=home,
                 current_mode=self.brain.modes.get_current_mode().id if getattr(self.brain, "modes", None) else "NORMAL",
                 available_modes=tuple(mode.id for mode in self.brain.modes.list_modes()) if getattr(self.brain, "modes", None) else (),
+                agents=list(getattr(getattr(self.brain, "orchestrator", None), "diagnostics", lambda: {"recent_activity": []})().get("recent_activity", [])),
             )
             self.snapshot_ready.emit(snapshot)
             return snapshot

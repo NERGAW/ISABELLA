@@ -20,4 +20,5 @@ class ControlCenterSnapshot:
     home: dict[str, Any] = field(default_factory=dict)
     current_mode: str = "NORMAL"
     available_modes: tuple[str, ...] = ()
+    agents: list[dict[str, Any]] = field(default_factory=list)
     generated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

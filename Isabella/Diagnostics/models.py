@@ -41,6 +41,7 @@ class Subsystem(str, Enum):
     NODES = "NODES"
     TRANSPORT = "TRANSPORT"
     HOME = "HOME"
+    AGENTS = "AGENTS"
 
 
 @dataclass(frozen=True)
