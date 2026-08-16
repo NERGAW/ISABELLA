@@ -13,10 +13,13 @@ from Isabella.Protocol import MAX_MESSAGE_BYTES, MessageType, NodeIdentity, Prot
 
 
 class WebSocketNodeClient:
-    def __init__(self, uri: str, identity: NodeIdentity, *, token: str | None = None, timeout: float = 15, max_message_size: int = MAX_MESSAGE_BYTES, available_capabilities: set[str] | None = None, authorized_events: set[str] | None = None, max_reconnect_attempts: int = 4, max_backoff_seconds: float = 8) -> None:
+    def __init__(self, uri: str, identity: NodeIdentity, *, token: str | None = None, device_identity=None, pairing: bool = False, requested_permissions=(), timeout: float = 15, max_message_size: int = MAX_MESSAGE_BYTES, available_capabilities: set[str] | None = None, authorized_events: set[str] | None = None, max_reconnect_attempts: int = 4, max_backoff_seconds: float = 8) -> None:
         self.uri = uri
         self.identity = identity
         self.token = token
+        self.device_identity = device_identity
+        self.pairing = pairing
+        self.requested_permissions = tuple(requested_permissions)
         self.timeout = timeout
         self.max_message_size = min(max_message_size, MAX_MESSAGE_BYTES)
         self.available_capabilities = available_capabilities or set(identity.capabilities)
@@ -44,6 +47,14 @@ class WebSocketNodeClient:
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else None
         self._socket = await asyncio.wait_for(connect(self.uri, additional_headers=headers, max_size=self.max_message_size, ping_interval=None), self.timeout)
         hello = ProtocolMessage(MessageType.HELLO, self.identity.node_id, "primary.local", {"identity": self.identity.to_dict()})
+        payload = {"identity": self.identity.to_dict()}
+        if self.device_identity:
+            if self.pairing:
+                payload["pairing"] = {"public_identity": self.device_identity.public_identity, "permissions": list(self.requested_permissions)}
+            else:
+                proof = f"{self.identity.node_id}|{hello.timestamp}|{hello.id}".encode()
+                payload["device_auth"] = {"signature": self.device_identity.sign(proof)}
+            hello = ProtocolMessage(hello.type, hello.source, hello.destination, payload, hello.id, hello.protocol_version, hello.timestamp, hello.correlation_id)
         await self._socket.send(encode(hello, max_bytes=self.max_message_size, available_capabilities=self.available_capabilities).decode())
         raw = await asyncio.wait_for(self._socket.recv(), self.timeout)
         response = decode(raw, max_bytes=self.max_message_size, available_capabilities=self.available_capabilities, authorized_events=self.authorized_events)

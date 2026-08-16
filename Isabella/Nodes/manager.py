@@ -33,7 +33,7 @@ def load_nodes_config(path: Path | None = None) -> dict[str, Any]:
 
 
 class NodeManager:
-    def __init__(self, config: dict[str, Any], *, app=None, brain=None, controller=None, context=None, event_bus=None, registry: NodeRegistry | None = None) -> None:
+    def __init__(self, config: dict[str, Any], *, app=None, brain=None, controller=None, context=None, event_bus=None, registry: NodeRegistry | None = None, device_security=None) -> None:
         self.config = config
         self.enabled = bool(config["enabled"])
         self.app = app
@@ -41,6 +41,7 @@ class NodeManager:
         self.controller = controller
         self.context = context or getattr(brain, "context", None)
         self.event_bus = event_bus
+        self.device_security = device_security
         identity = Path(config["identity_file"])
         registry_path = Path(config["registry_file"])
         self.identity_path = identity if identity.is_absolute() else PROJECT_ROOT / identity
@@ -163,9 +164,22 @@ class NodeManager:
         node = self._require(node_id)
         node.trust = TrustState.REVOKED
         node.status = NodeStatus.DISCONNECTED
+        if self.device_security and self.device_security.store.get(node_id):
+            self.device_security.revoke_node(node_id)
         self.registry.save(node)
         self._emit(EventType.NODE_REVOKED, node)
         self._sync_context()
+        self._sync_hud()
+        return node
+
+    def trust(self, node_id: str) -> Node:
+        node = self._require(node_id)
+        record = self.device_security.store.get(node_id) if self.device_security else None
+        if not record or record.trust_status.value != "TRUSTED":
+            raise PermissionError("Cryptographic device approval is required")
+        node.trust = TrustState.TRUSTED
+        self.registry.save(node)
+        self._emit(EventType.NODE_TRUSTED, node)
         self._sync_hud()
         return node
 
@@ -181,7 +195,10 @@ class NodeManager:
     def diagnostics(self) -> dict[str, Any]:
         nodes = self.list()
         capabilities = sorted({capability for node in nodes if node.status is NodeStatus.ONLINE for capability in node.capabilities})
-        return {"enabled": self.enabled, "nodes_total": len(nodes), "online": sum(node.status is NodeStatus.ONLINE for node in nodes), "offline": sum(node.status in {NodeStatus.OFFLINE, NodeStatus.DISCONNECTED} for node in nodes), "capabilities": capabilities, "primary_node": self.primary_node_id}
+        details = {"enabled": self.enabled, "nodes_total": len(nodes), "online": sum(node.status is NodeStatus.ONLINE for node in nodes), "offline": sum(node.status in {NodeStatus.OFFLINE, NodeStatus.DISCONNECTED} for node in nodes), "capabilities": capabilities, "primary_node": self.primary_node_id}
+        if self.device_security:
+            details.update(self.device_security.diagnostics())
+        return details
 
     def shutdown(self) -> bool:
         primary = self.primary()
@@ -203,6 +220,9 @@ class NodeManager:
         if self.controller:
             online = sum(node.status is NodeStatus.ONLINE for node in self.list())
             self.controller.update_subsystem("NODES", f"{online} ONLINE")
+            if self.device_security:
+                devices = self.device_security.diagnostics()
+                self.controller.update_subsystem("DEVICES", f"Trusted: {devices['trusted_nodes']} | Pending: {devices['pending_pairing']}")
 
     def _require(self, node_id: str) -> Node:
         node = self.get(node_id)
@@ -213,4 +233,3 @@ class NodeManager:
     def _emit(self, event_type, node: Node) -> None:
         if self.event_bus:
             self.event_bus.emit(event_type, "nodes", {"node_id": node.node_id, "node_type": node.node_type.value, "status": node.status.value, "trust": node.trust.value})
-

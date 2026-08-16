@@ -28,13 +28,14 @@ PROTOCOL_TO_NODE = {
 
 
 class WebSocketNodeServer:
-    def __init__(self, config: dict[str, Any], *, node_manager, registry, authentication, rate_limiter, event_bus=None) -> None:
+    def __init__(self, config: dict[str, Any], *, node_manager, registry, authentication, rate_limiter, event_bus=None, device_security=None) -> None:
         self.config = config
         self.node_manager = node_manager
         self.registry = registry
         self.authentication = authentication
         self.rate_limiter = rate_limiter
         self.event_bus = event_bus
+        self.device_security = device_security
         self.host = config["host"]
         self.port = int(config["port"])
         self.max_message_size = min(int(config["max_message_size"]), MAX_MESSAGE_BYTES)
@@ -105,6 +106,25 @@ class WebSocketNodeServer:
             identity = NodeIdentity.from_dict(hello.payload["identity"])
             connection.node_id = identity.node_id
             connection.protocol_version = identity.protocol_version
+            if self.device_security:
+                auth = hello.payload.get("device_auth", {})
+                record = self.device_security.store.get(identity.node_id)
+                if record:
+                    proof = f"{identity.node_id}|{hello.timestamp}|{hello.id}".encode()
+                    try:
+                        stamp = datetime.fromisoformat(hello.timestamp).timestamp()
+                    except ValueError:
+                        stamp = 0
+                    connection.authenticated = self.device_security.authenticate(identity.node_id, proof, str(auth.get("signature", "")), hello.id, stamp)
+                    if not connection.authenticated:
+                        raise PermissionError("Device credential mismatch")
+                else:
+                    pairing = hello.payload.get("pairing")
+                    if not pairing or not self.device_security.pairing_open:
+                        raise PermissionError("Unknown Node may only request pairing while pairing mode is open")
+                    request = self.device_security.request_pairing(identity.node_id, str(pairing.get("public_identity", "")), tuple(pairing.get("permissions", ())))
+                    connection.authenticated = False
+                    connection.pairing_id = request.pairing_id
             with self._lock:
                 if any(item.connection_id != connection.connection_id and item.node_id == identity.node_id and item.status in {ConnectionStatus.ESTABLISHED, ConnectionStatus.DEGRADED} for item in self.connections.values()):
                     raise ProtocolValidationError("DUPLICATE_CONNECTION", "Node already has an active connection")
@@ -113,6 +133,14 @@ class WebSocketNodeServer:
             welcome = negotiate_hello(hello, primary, primary_capabilities=set(primary.capabilities), peer_capabilities=self.node_manager.known_capabilities, heartbeat_seconds=int(self.heartbeat_seconds))
             if welcome.type is MessageType.ERROR:
                 await self._send(websocket, connection, welcome)
+                return
+            if connection.pairing_id:
+                payload = dict(welcome.payload)
+                payload["pairing"] = {"pairing_id": connection.pairing_id, "status": "PAIRING"}
+                welcome = ProtocolMessage(welcome.type, welcome.source, welcome.destination, payload,
+                                          welcome.id, welcome.protocol_version, welcome.timestamp, welcome.correlation_id)
+                await self._send(websocket, connection, welcome)
+                await websocket.close(code=1000, reason="pairing request accepted")
                 return
             connection.status = ConnectionStatus.ESTABLISHED
             await self._send(websocket, connection, welcome)
@@ -141,7 +169,9 @@ class WebSocketNodeServer:
                     await self._send(websocket, connection, reply)
                 elif message.type is MessageType.COMMAND_REQUEST:
                     try:
-                        result = dispatch_command(message, authenticated=connection.authenticated, registry=self.registry)
+                        if self.device_security and not self.device_security.authorize(connection.node_id, "send_commands"):
+                            raise ProtocolValidationError("PERMISSION_DENIED", "Node lacks send_commands permission")
+                        result = dispatch_command(message, authenticated=connection.authenticated, registry=self.registry, source_node=connection.node_id)
                         payload = {"request_id": message.id, "success": result.success, "status": result.status, "message": result.message, "data": result.data, "error": result.error_code}
                     except ProtocolValidationError as exc:
                         payload = {"request_id": message.id, "success": False, "status": "denied", "message": str(exc), "data": {}, "error": exc.code}
@@ -187,7 +217,8 @@ class WebSocketNodeServer:
             self.node_manager.heartbeat(existing.node_id)
             self.reconnects += 1
             return
-        node = Node(identity.node_id, identity.name, node_type, NodeStatus.CONNECTING, identity.protocol_version, identity.capabilities, trust=TrustState.UNTRUSTED)
+        trust = TrustState.PAIRING if self.device_security else TrustState.UNTRUSTED
+        node = Node(identity.node_id, identity.name, node_type, NodeStatus.CONNECTING, identity.protocol_version, identity.capabilities, trust=trust)
         self.node_manager.register(node)
 
     def _decode(self, raw, connection: NodeConnection) -> ProtocolMessage:

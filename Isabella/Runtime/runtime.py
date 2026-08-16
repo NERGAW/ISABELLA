@@ -202,6 +202,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.api = None
         self.nodes = None
         self.transport = None
+        self.device_security = None
         self._register_application_services()
 
     @classmethod
@@ -447,9 +448,16 @@ class ApplicationRuntime(IsabellaRuntime):
 
     def _start_nodes(self):
         from Isabella.Nodes import NodeManager
-        self.nodes = NodeManager.from_config(app=self.app, brain=self.brain, controller=self.controller, context=self.brain.context, event_bus=self.event_bus)
+        from Isabella.Security.Devices import DevicePairingManager
+        from Isabella.Skills import create_node_security_skills
+        self.device_security = DevicePairingManager.from_config(event_bus=self.event_bus)
+        self.nodes = NodeManager.from_config(app=self.app, brain=self.brain, controller=self.controller, context=self.brain.context, event_bus=self.event_bus, device_security=self.device_security)
         self.brain.nodes = self.nodes
-        return self.nodes.start()
+        started = self.nodes.start()
+        for definition in create_node_security_skills(self.nodes, self.device_security):
+            if self.brain.registry.get(definition.id) is None:
+                self.brain.registry.register(definition)
+        return started
 
     def _stop_nodes(self):
         if not self.nodes:
@@ -458,6 +466,7 @@ class ApplicationRuntime(IsabellaRuntime):
         if self.brain:
             self.brain.nodes = None
         self.nodes = None
+        self.device_security = None
         return stopped
 
     def _health_nodes(self):
@@ -468,7 +477,7 @@ class ApplicationRuntime(IsabellaRuntime):
 
     def _start_transport(self):
         from Isabella.Transport import TransportManager
-        self.transport = TransportManager.from_config(node_manager=self.nodes, registry=self.brain.registry, event_bus=self.event_bus)
+        self.transport = TransportManager.from_config(node_manager=self.nodes, registry=self.brain.registry, event_bus=self.event_bus, device_security=self.device_security)
         self.brain.transport = self.transport
         return self.transport.start()
 

@@ -1,0 +1,8 @@
+{
+  "pairing_enabled_by_default": false,
+  "pairing_window_seconds": 120,
+  "code_ttl_seconds": 90,
+  "credential_registry_file": "data/device_credentials.json",
+  "replay_window_seconds": 60,
+  "default_permissions": ["send_commands", "receive_notifications", "send_voice", "receive_hud_data", "send_telemetry", "send_sensor_data", "receive_home_commands"]
+}

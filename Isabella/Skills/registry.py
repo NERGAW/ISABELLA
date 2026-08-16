@@ -91,7 +91,7 @@ class SkillRegistry:
     def execute(
         self, skill_id: str, arguments: dict[str, Any], confirmed: bool = False,
         *, source_request_id: str = "direct", confirmation_id: str | None = None,
-        confirmation_source: str = "untrusted",
+        confirmation_source: str = "untrusted", source_node: str | None = None,
     ) -> SkillResult:
         started = perf_counter()
         if self.event_bus:
@@ -108,7 +108,7 @@ class SkillRegistry:
         else:
             # `confirmed` is deliberately ignored: a boolean can be forged by an LLM or caller.
             policy = self.policy_engine.evaluate(
-                skill_id, arguments, definition.risk_level, source_request_id,
+                skill_id, arguments, definition.risk_level, source_request_id, source_node,
             )
         if policy.decision is PolicyDecision.CONFIRM:
             result = SkillResult(

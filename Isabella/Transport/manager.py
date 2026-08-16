@@ -43,20 +43,20 @@ def load_transport_config(path: Path | None = None) -> dict[str, Any]:
 
 
 class TransportManager:
-    def __init__(self, config: dict[str, Any], *, node_manager, registry, event_bus=None) -> None:
+    def __init__(self, config: dict[str, Any], *, node_manager, registry, event_bus=None, device_security=None) -> None:
         self.config = config
         ws = config["websocket"]
         self.enabled = bool(ws["enabled"])
         token_path = Path(ws["token_file"])
         authentication = TokenAuthentication(token_path if token_path.is_absolute() else PROJECT_ROOT / token_path, required=True)
         limiter = RateLimiter(int(ws["rate_limit"]), float(ws["rate_window_seconds"]))
-        self.server = WebSocketNodeServer(ws, node_manager=node_manager, registry=registry, authentication=authentication, rate_limiter=limiter, event_bus=event_bus)
+        self.server = WebSocketNodeServer(ws, node_manager=node_manager, registry=registry, authentication=authentication, rate_limiter=limiter, event_bus=event_bus, device_security=device_security)
         self.event_bus = event_bus
         self._subscribed = False
 
     @classmethod
-    def from_config(cls, *, node_manager, registry, event_bus=None, path: Path | None = None) -> "TransportManager":
-        return cls(load_transport_config(path), node_manager=node_manager, registry=registry, event_bus=event_bus)
+    def from_config(cls, *, node_manager, registry, event_bus=None, device_security=None, path: Path | None = None) -> "TransportManager":
+        return cls(load_transport_config(path), node_manager=node_manager, registry=registry, event_bus=event_bus, device_security=device_security)
 
     def start(self) -> bool:
         if not self.enabled:

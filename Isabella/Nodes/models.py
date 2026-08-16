@@ -36,7 +36,9 @@ class NodeStatus(str, Enum):
 
 class TrustState(str, Enum):
     UNTRUSTED = "UNTRUSTED"
-    PENDING = "PENDING"
+    PAIRING = "PAIRING"
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    PENDING = "PENDING_APPROVAL"
     TRUSTED = "TRUSTED"
     REVOKED = "REVOKED"
 
@@ -78,4 +80,3 @@ class Node:
 
     def hello(self, destination: str = "primary") -> ProtocolMessage:
         return ProtocolMessage(MessageType.HELLO, self.node_id, destination, {"identity": self.protocol_identity().to_dict()})
-

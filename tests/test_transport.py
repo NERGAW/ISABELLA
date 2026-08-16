@@ -13,6 +13,7 @@ from Isabella.Events import EventBus
 from Isabella.Nodes import NodeManager, NodeRegistry, NodeStatus, TrustState
 from Isabella.Protocol import MessageType, NodeIdentity, NodeType, ProtocolMessage
 from Isabella.Security import SecurityPolicyEngine
+from Isabella.Security.Devices import DeviceIdentity, DevicePairingManager
 from Isabella.Skills.base import RiskLevel, SkillDefinition, SkillResult
 from Isabella.Skills.registry import SkillRegistry
 from Isabella.Transport import TransportManager, WebSocketNodeClient, WebSocketNodeServer
@@ -202,3 +203,31 @@ def test_simulated_node_cli_connects_over_real_websocket(tmp_path):
     assert "COMMAND=completed" in result.stdout
     assert "GOODBYE=SENT" in result.stdout
     transport.shutdown()
+
+
+def test_secure_device_pairing_signed_handshake_and_permission(tmp_path):
+    skills = registry([])
+    nodes = make_nodes(tmp_path, skills)
+    device_config = {"pairing_enabled_by_default": False, "pairing_window_seconds": 30,
+                     "code_ttl_seconds": 20, "credential_registry_file": str(tmp_path / "devices.json"),
+                     "replay_window_seconds": 60, "default_permissions": ["send_commands"]}
+    devices = DevicePairingManager(device_config)
+    identity_key = DeviceIdentity.load_or_create("mobile.secure", tmp_path / "mobile.pem")
+    devices.start_pairing()
+    pairing = devices.request_pairing("mobile.secure", identity_key.public_identity, ("send_commands",))
+    assert devices.verify_code(pairing.pairing_id, pairing.display_code)
+    devices.approve(pairing.pairing_id)
+    config = ws_config(tmp_path)
+    auth = TokenAuthentication(Path(config["token_file"]), True)
+    transport = WebSocketNodeServer(config, node_manager=nodes, registry=skills, authentication=auth,
+                                    rate_limiter=RateLimiter(100, 60), device_security=devices)
+    assert transport.start()
+    identity = NodeIdentity("mobile.secure", NodeType.SMARTPHONE, "Secure", capabilities=("notifications",))
+    mobile = WebSocketNodeClient(f"ws://127.0.0.1:{transport.port}", identity, device_identity=identity_key,
+                                 timeout=5, available_capabilities={"text_input", "skill_execution", "notifications", "sensors"})
+    assert mobile.connect().type is MessageType.WELCOME
+    request = ProtocolMessage(MessageType.COMMAND_REQUEST, "mobile.secure", "primary.local", {"skill_id": "test.safe", "arguments": {}})
+    mobile.send(request)
+    assert mobile.receive().payload["success"]
+    mobile.disconnect()
+    assert transport.shutdown()

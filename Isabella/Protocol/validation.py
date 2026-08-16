@@ -86,7 +86,7 @@ def validate_message(message: ProtocolMessage, *, available_capabilities: set[st
             raise ProtocolValidationError("INVALID_COMMAND_RESULT", "Command result payload is invalid")
 
 
-def dispatch_command(message: ProtocolMessage, *, authenticated: bool, registry, source_request_id: str | None = None) -> SkillResult:
+def dispatch_command(message: ProtocolMessage, *, authenticated: bool, registry, source_request_id: str | None = None, source_node: str | None = None) -> SkillResult:
     validate_message(message)
     if message.type is not MessageType.COMMAND_REQUEST:
         raise ProtocolValidationError("INVALID_MESSAGE_TYPE", "Only COMMAND_REQUEST can be dispatched")
@@ -98,7 +98,7 @@ def dispatch_command(message: ProtocolMessage, *, authenticated: bool, registry,
     if validation:
         return validation
     # No confirmation flag/id is accepted from the protocol. Security is authoritative.
-    return registry.execute(skill_id, arguments, source_request_id=source_request_id or message.correlation_id)
+    return registry.execute(skill_id, arguments, source_request_id=source_request_id or message.correlation_id, source_node=source_node or message.source)
 
 
 def _validate_command_payload(payload: dict[str, Any]) -> None:

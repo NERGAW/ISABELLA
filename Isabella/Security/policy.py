@@ -67,7 +67,7 @@ class SecurityPolicyEngine:
 
     def evaluate(
         self, skill_id: str, arguments: dict[str, Any], risk_level,
-        source_request_id: str,
+        source_request_id: str, source_node: str | None = None,
     ) -> PolicyResult:
         self.expire_pending()
         risk_name = getattr(risk_level, "value", str(risk_level))
@@ -75,10 +75,10 @@ class SecurityPolicyEngine:
         if risk_name == "CRITICAL" and decision is PolicyDecision.ALLOW:
             decision = PolicyDecision.CONFIRM
         if decision is PolicyDecision.ALLOW:
-            self._emit(EventType.SECURITY_ALLOWED, skill_id, source_request_id)
+            self._emit(EventType.SECURITY_ALLOWED, skill_id, source_request_id, {"source_node": source_node} if source_node else None)
             return PolicyResult(decision, "risk_policy_allows")
         if decision is PolicyDecision.DENY:
-            self._emit(EventType.SECURITY_DENIED, skill_id, source_request_id)
+            self._emit(EventType.SECURITY_DENIED, skill_id, source_request_id, {"source_node": source_node} if source_node else None)
             return PolicyResult(decision, "risk_policy_denies")
         now = utc_now()
         confirmation = ConfirmationRequest(
