@@ -214,6 +214,13 @@ class DiagnosticsManager:
                 details = nodes.diagnostics()
                 status = HealthStatus.ONLINE if details.get("online", 0) >= 1 else HealthStatus.DEGRADED
                 return status, details
+            if subsystem is Subsystem.TRANSPORT:
+                transport = getattr(brain, "transport", None) or getattr(self.runtime, "transport", None)
+                if transport is None:
+                    return HealthStatus.UNKNOWN, {"enabled": False, "bound": False}
+                details = transport.diagnostics()
+                status = HealthStatus.ONLINE if details.get("status") == "ONLINE" else HealthStatus.DEGRADED if not details.get("enabled") else HealthStatus.ERROR
+                return status, details
             return HealthStatus.UNKNOWN, {}
 
         result = health(subsystem, probe)

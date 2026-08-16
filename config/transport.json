@@ -1,0 +1,17 @@
+{
+  "websocket": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8766,
+    "allow_remote": false,
+    "heartbeat_seconds": 10,
+    "connection_timeout_seconds": 15,
+    "max_message_size": 1048576,
+    "token_file": "data/api_token.txt",
+    "rate_limit": 60,
+    "rate_window_seconds": 60,
+    "event_allowlist": [
+      "diagnostics.status_changed"
+    ]
+  }
+}

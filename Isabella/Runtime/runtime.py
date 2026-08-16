@@ -201,6 +201,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.window = None
         self.api = None
         self.nodes = None
+        self.transport = None
         self._register_application_services()
 
     @classmethod
@@ -231,6 +232,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.register(Service("Voice Input", voice_dependencies, start_hook=self._start_voice, stop_hook=self._stop_voice, health_hook=self._health_voice))
         self.register(Service("Voice Output", ("Core",), start_hook=self._start_tts, stop_hook=self._stop_tts, health_hook=self._health_tts))
         self.register(Service("Nodes", ("Core", "Intelligence", "Context", "Vision"), start_hook=self._start_nodes, stop_hook=self._stop_nodes, health_hook=self._health_nodes))
+        self.register(Service("Transport", ("Nodes", "Skills", "Security", "Event Bus"), start_hook=self._start_transport, stop_hook=self._stop_transport, health_hook=self._health_transport))
 
     def _start_core(self):
         from Isabella.Core.app import IsabellaApp
@@ -463,6 +465,27 @@ class ApplicationRuntime(IsabellaRuntime):
             return ServiceState.ERROR
         details = self.nodes.diagnostics()
         return ServiceState.ONLINE if details["online"] >= 1 else ServiceState.DEGRADED
+
+    def _start_transport(self):
+        from Isabella.Transport import TransportManager
+        self.transport = TransportManager.from_config(node_manager=self.nodes, registry=self.brain.registry, event_bus=self.event_bus)
+        self.brain.transport = self.transport
+        return self.transport.start()
+
+    def _stop_transport(self):
+        if not self.transport:
+            return True
+        stopped = self.transport.shutdown()
+        if self.brain:
+            self.brain.transport = None
+        self.transport = None
+        return stopped
+
+    def _health_transport(self):
+        if not self.transport:
+            return ServiceState.ERROR
+        status = self.transport.diagnostics()["status"]
+        return ServiceState.ONLINE if status == "ONLINE" else ServiceState.DEGRADED if not self.transport.enabled else ServiceState.ERROR
 
     def start(self) -> bool:
         success = super().start()

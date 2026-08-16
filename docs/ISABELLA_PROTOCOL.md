@@ -99,6 +99,9 @@ versão e capabilities reais, o Primary responde `WELCOME` com sua identidade,
 `accepted_version` e `heartbeat_seconds`. O intervalo permitido é de 5 a 30
 segundos; nenhum heartbeat agressivo foi implementado.
 
+O primeiro transporte concreto é WebSocket local, documentado em
+`docs/TRANSPORT.md`. Ele não altera o envelope nem a negociação.
+
 ## Commands e Security
 
 Um command transporta somente:
@@ -123,6 +126,9 @@ Campos `python`, `code`, `shell`, `command`, `executable`, `permissions`,
 possui confirmação embutida e nunca chama o sistema operacional diretamente.
 Uma Skill crítica continua retornando `confirmation_required`; uma Skill
 inexistente é rejeitada pelo Registry.
+
+No WebSocket, `COMMAND_RESULT` inclui também `request_id`, ligando o resultado ao
+ID do `COMMAND_REQUEST` além do `correlation_id` do envelope.
 
 ## Telemetria
 
@@ -176,4 +182,3 @@ o transporte já possui um modelo.
 
 Mudanças incompatíveis exigirão nova versão negociada. Implementações v1 não
 devem presumir suporte futuro nem continuar após erro de versão.
-

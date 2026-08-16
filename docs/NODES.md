@@ -77,8 +77,8 @@ O Primary produz `HELLO` JSON compatível com ISABELLA Protocol `1.0`. O tipo
 `PRIMARY_PC` é mapeado para a identidade Protocol `PRIMARY`; tipos futuros usam o
 tipo protocolar mais próximo sem alterar o tipo interno.
 
-Não há transporte remoto real. Nenhuma rede, socket, broadcast, MQTT ou internet
-é aberta por esta camada.
+O transporte WebSocket local pode conectar Nodes simulados em `127.0.0.1`.
+Nenhuma rede externa, broadcast, MQTT ou internet é aberta.
 
 ## Event Bus, Context, HUD e Diagnostics
 
@@ -99,11 +99,12 @@ python tools/simulate_node.py --type MOBILE
 
 O simulador usa Registry temporário, produz um HELLO v1, registra heartbeat e
 permanece `UNTRUSTED`. A saída inclui `ACCESS_GRANTED=false`. Ele não conecta à
-API, não recebe token, não executa Skills e não acessa o computador.
+API automaticamente nem acessa o computador. Com flags explícitas, pode conectar
+ao WebSocket local e usar token fornecido pelo desenvolvedor para testar uma
+Skill SAFE.
 
 ## Roadmap futuro
 
 Pareamento, autenticação de dispositivo, transportes, Android e hardware exigem
 fases próprias e revisão de segurança. Não há reconhecimento facial nesta
 arquitetura.
-

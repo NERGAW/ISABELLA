@@ -1,6 +1,6 @@
 # Estado atual da I.S.A.B.E.L.L.A.
 
-Checkpoint validado em 15/08/2026 após a Fase 24.
+Checkpoint validado em 15/08/2026 após a Fase 25.
 
 ## Arquitetura operacional
 
@@ -42,7 +42,7 @@ LLM podem falhar isoladamente; Core, Skills locais, HUD/CLI e shutdown continuam
 - Vision sob demanda para tela, janela e câmera sem captura contínua.
 - Compreensão multimodal local sob demanda com `qwen3-vl:2b`, imagem reduzida e
   contexto apenas textual/estruturado.
-- Diagnostics para 20 subsistemas, métricas e histórico limitado.
+- Diagnostics para 21 subsistemas, métricas e histórico limitado.
 - MCP modular com `stdio` e Streamable HTTP oficiais, desligado de conexões por
   padrão e sempre subordinado ao Security Policy Engine local.
 - Research sob demanda com fontes consultadas, citações, fetch público protegido
@@ -59,6 +59,8 @@ LLM podem falhar isoladamente; Core, Skills locais, HUD/CLI e shutdown continuam
   identidade/capabilities validadas, negociação e gateway seguro para o Registry.
 - Node Architecture com `PRIMARY_PC` persistente, Registry de conhecidos, trust
   explícito, capabilities reais, Context e indicador HUD simples.
+- Transporte WebSocket bidirecional somente em localhost, com Protocol v1,
+  heartbeat, reconnect limitado, autenticação de commands e event allowlist.
 - Logs com rotação de 5 MB e três backups.
 
 ## Auditoria da Fase 15
@@ -104,3 +106,5 @@ O Protocol ainda não possui transporte, Nodes reais, Android, MQTT ou hardware;
 eventos internos só podem ser mapeados por allowlist explícita futura.
 Somente o Primary PC é Node real; o simulador permanece local e `UNTRUSTED`, sem
 Android, ESP32, capacete, descoberta de rede ou comunicação externa.
+O WebSocket não faz pareamento e não confia em Node ID; nenhuma porta externa ou
+regra de firewall é criada.

@@ -12,3 +12,4 @@ av
 opencv-python
 mcp>=2,<3
 tzdata
+websockets>=15,<17

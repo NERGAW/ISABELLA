@@ -81,7 +81,7 @@ def validate_message(message: ProtocolMessage, *, available_capabilities: set[st
         if not isinstance(message.payload.get("status"), str):
             raise ProtocolValidationError("INVALID_STATUS", "Status payload requires a status string")
     elif message.type is MessageType.COMMAND_RESULT:
-        required = {"success", "status", "message", "data", "error"}
+        required = {"request_id", "success", "status", "message", "data", "error"}
         if set(message.payload) != required or not isinstance(message.payload["success"], bool) or not isinstance(message.payload["data"], dict):
             raise ProtocolValidationError("INVALID_COMMAND_RESULT", "Command result payload is invalid")
 
