@@ -14,6 +14,8 @@ from Isabella.Nodes import NodeManager, NodeRegistry, NodeStatus, TrustState
 from Isabella.Protocol import MessageType, NodeIdentity, NodeType, ProtocolMessage
 from Isabella.Security import SecurityPolicyEngine
 from Isabella.Security.Devices import DeviceIdentity, DevicePairingManager
+from Isabella.Sessions import SessionManager
+from Isabella.Notifications import Notification, NotificationManager, NotificationType
 from Isabella.Skills.base import RiskLevel, SkillDefinition, SkillResult
 from Isabella.Skills.registry import SkillRegistry
 from Isabella.Transport import TransportManager, WebSocketNodeClient, WebSocketNodeServer
@@ -231,3 +233,35 @@ def test_secure_device_pairing_signed_handshake_and_permission(tmp_path):
     assert mobile.receive().payload["success"]
     mobile.disconnect()
     assert transport.shutdown()
+
+
+def test_mobile_chat_session_continuation_and_targeted_notification(tmp_path):
+    skills = registry([]); nodes = make_nodes(tmp_path, skills)
+    device_config = {"pairing_enabled_by_default": False, "pairing_window_seconds": 30,
+                     "code_ttl_seconds": 20, "credential_registry_file": str(tmp_path / "multi-devices.json"),
+                     "replay_window_seconds": 60, "default_permissions": ["send_commands", "receive_notifications"]}
+    devices = DevicePairingManager(device_config)
+    key = DeviceIdentity.load_or_create("mobile.session", tmp_path / "session.pem")
+    devices.start_pairing(); pairing = devices.request_pairing("mobile.session", key.public_identity, ("send_commands", "receive_notifications"))
+    assert devices.verify_code(pairing.pairing_id, pairing.display_code); devices.approve(pairing.pairing_id)
+    sessions = SessionManager(); notifications = NotificationManager()
+    calls = []
+    brain = type("Brain", (), {"process": lambda self, text, **kwargs: (calls.append((text, kwargs)) or type("Response", (), {"message": f"Resposta: {text}", "skill_results": ()})())})()
+    config = ws_config(tmp_path); auth = TokenAuthentication(Path(config["token_file"]), True)
+    transport = WebSocketNodeServer(config, node_manager=nodes, registry=skills, authentication=auth,
+        rate_limiter=RateLimiter(100, 60), device_security=devices, brain=brain, sessions=sessions, notifications=notifications)
+    assert transport.start(); notifications.bind_sender(transport.send_notification)
+    identity = NodeIdentity("mobile.session", NodeType.SMARTPHONE, "Mobile", capabilities=("notifications",))
+    mobile = WebSocketNodeClient(f"ws://127.0.0.1:{transport.port}", identity, device_identity=key,
+        timeout=5, available_capabilities={"text_input", "skill_execution", "notifications", "sensors"})
+    mobile.connect()
+    first = ProtocolMessage(MessageType.CHAT_REQUEST, "mobile.session", "primary.local", {"text": "continue o assunto", "session_id": None, "input_source": "text"})
+    mobile.send(first); response = mobile.receive()
+    assert response.type is MessageType.CHAT_RESULT and response.payload["session_id"]
+    second = ProtocolMessage(MessageType.CHAT_REQUEST, "mobile.session", "primary.local", {"text": "e agora?", "session_id": response.payload["session_id"], "input_source": "voice"})
+    mobile.send(second); assert mobile.receive().payload["session_id"] == response.payload["session_id"]
+    notice = Notification(NotificationType.REMINDER, "Lembrete", "Reunião em 10 minutos", "scheduler", target_node="mobile.session")
+    assert notifications.create(notice)
+    incoming = mobile.receive(); assert incoming.type is MessageType.NOTIFICATION and incoming.payload["id"] == notice.id
+    assert calls[1][1]["input_source"] == "mobile:voice"
+    mobile.disconnect(); assert transport.shutdown()

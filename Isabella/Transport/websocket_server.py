@@ -28,7 +28,7 @@ PROTOCOL_TO_NODE = {
 
 
 class WebSocketNodeServer:
-    def __init__(self, config: dict[str, Any], *, node_manager, registry, authentication, rate_limiter, event_bus=None, device_security=None) -> None:
+    def __init__(self, config: dict[str, Any], *, node_manager, registry, authentication, rate_limiter, event_bus=None, device_security=None, brain=None, sessions=None, notifications=None) -> None:
         self.config = config
         self.node_manager = node_manager
         self.registry = registry
@@ -36,6 +36,9 @@ class WebSocketNodeServer:
         self.rate_limiter = rate_limiter
         self.event_bus = event_bus
         self.device_security = device_security
+        self.brain = brain
+        self.sessions = sessions
+        self.notifications = notifications
         self.host = config["host"]
         self.port = int(config["port"])
         self.max_message_size = min(int(config["max_message_size"]), MAX_MESSAGE_BYTES)
@@ -146,6 +149,10 @@ class WebSocketNodeServer:
                 return
             connection.status = ConnectionStatus.ESTABLISHED
             await self._send(websocket, connection, welcome)
+            if self.sessions:
+                self.sessions.resolve(connection.node_id)
+            if self.notifications:
+                self.notifications.flush(connection.node_id)
             missed = 0
             while True:
                 try:
@@ -179,6 +186,37 @@ class WebSocketNodeServer:
                         payload = {"request_id": message.id, "success": False, "status": "denied", "message": str(exc), "data": {}, "error": exc.code}
                     reply = ProtocolMessage(MessageType.COMMAND_RESULT, primary.node_id, connection.node_id, payload, correlation_id=message.correlation_id)
                     await self._send(websocket, connection, reply)
+                elif message.type is MessageType.CHAT_REQUEST:
+                    if not connection.authenticated or not self.device_security.authorize(connection.node_id, "send_commands"):
+                        raise ProtocolValidationError("PERMISSION_DENIED", "Node lacks chat permission")
+                    if not self.brain or not self.sessions:
+                        raise ProtocolValidationError("CHAT_UNAVAILABLE", "Shared Brain session is unavailable")
+                    session = self.sessions.resolve(connection.node_id, message.payload.get("session_id"))
+                    response = self.brain.process(message.payload["text"], request_id=message.id, input_source=f"mobile:{message.payload['input_source']}")
+                    confirmation = None
+                    if response.skill_results and response.skill_results[-1].status == "confirmation_required":
+                        confirmation = dict(response.skill_results[-1].data)
+                        self._create_confirmation_notification(connection.node_id, response.message, confirmation)
+                    payload = {"request_id": message.id, "session_id": session.session_id, "message": response.message,
+                               "status": "confirmation_required" if confirmation else "completed", "confirmation": confirmation}
+                    await self._send(websocket, connection, ProtocolMessage(MessageType.CHAT_RESULT, primary.node_id, connection.node_id, payload, correlation_id=message.correlation_id))
+                elif message.type is MessageType.NOTIFICATION_ACK:
+                    if self.notifications:
+                        self.notifications.acknowledge(message.payload["notification_id"], connection.node_id)
+                elif message.type is MessageType.NOTIFICATION_ACTION:
+                    if not connection.authenticated or not self.notifications:
+                        raise ProtocolValidationError("PERMISSION_DENIED", "Notification action is unavailable")
+                    action = message.payload["action"]
+                    if action == "Confirmar" and not self.device_security.authorize(connection.node_id, "confirm_critical"):
+                        raise ProtocolValidationError("PERMISSION_DENIED", "Node cannot confirm critical actions")
+                    self.notifications.act(message.payload["notification_id"], connection.node_id, action)
+                elif message.type is MessageType.SESSION_HANDOFF:
+                    if not self.sessions or message.payload["target_node"] not in {item.node_id for item in self.node_manager.list()}:
+                        raise ProtocolValidationError("INVALID_HANDOFF", "Target Node is unknown")
+                    current_session = self.sessions.get(message.payload["session_id"])
+                    if not current_session or current_session.active_node != connection.node_id:
+                        raise ProtocolValidationError("PERMISSION_DENIED", "Only the active Node can hand off this session")
+                    self.sessions.handoff_session(message.payload["session_id"], message.payload["target_node"])
                 elif message.type is MessageType.GOODBYE:
                     await websocket.close(code=1000, reason="goodbye")
                     break
@@ -247,6 +285,33 @@ class WebSocketNodeServer:
             return
         asyncio.run_coroutine_threadsafe(self._broadcast_event(event), self._loop)
 
+    def send_notification(self, node_id, notification) -> bool:
+        if not self._thread or not self._thread.is_alive() or not self.device_security or not self.device_security.authorize(node_id, "receive_notifications"):
+            return False
+        future = asyncio.run_coroutine_threadsafe(self._send_notification(node_id, notification), self._loop)
+        try:
+            return bool(future.result(timeout=2))
+        except Exception:
+            return False
+
+    async def _send_notification(self, node_id, notification) -> bool:
+        with self._lock:
+            target = next(((key, self._sockets.get(key)) for key, item in self.connections.items()
+                           if item.node_id == node_id and item.authenticated and item.status is ConnectionStatus.ESTABLISHED), None)
+        if not target or not target[1]: return False
+        connection_id, socket = target
+        primary = self.node_manager.primary()
+        if not primary: return False
+        await self._send(socket, self.connections[connection_id], ProtocolMessage(MessageType.NOTIFICATION, primary.node_id, node_id, notification.to_dict(), correlation_id=notification.id))
+        return True
+
+    def _create_confirmation_notification(self, node_id, message, confirmation):
+        if not self.notifications: return
+        from Isabella.Notifications import Notification, NotificationType
+        self.notifications.create(Notification(NotificationType.ACTION_REQUIRED, "Confirmação necessária", message,
+            "security", priority=3, actions=("Confirmar", "Cancelar"), expires_at=confirmation.get("expires_at"),
+            target_node=node_id, metadata={"confirmation_id": confirmation.get("confirmation_id")}))
+
     async def _broadcast_event(self, event) -> None:
         primary = self.node_manager.primary()
         if not primary:
@@ -264,7 +329,9 @@ class WebSocketNodeServer:
     def diagnostics(self) -> dict[str, Any]:
         with self._lock:
             active = sum(item.status in {ConnectionStatus.ESTABLISHED, ConnectionStatus.DEGRADED} for item in self.connections.values())
-        return {"status": "ONLINE" if self._thread and self._thread.is_alive() and self._server else "OFFLINE", "connections": active, "known_connections": len(self.connections), "messages_received": self.messages_received, "messages_sent": self.messages_sent, "errors": self.errors, "reconnects": self.reconnects}
+        return {"status": "ONLINE" if self._thread and self._thread.is_alive() and self._server else "OFFLINE", "connections": active, "known_connections": len(self.connections), "messages_received": self.messages_received, "messages_sent": self.messages_sent, "errors": self.errors, "reconnects": self.reconnects,
+                "sessions": self.sessions.diagnostics() if self.sessions else {},
+                "notifications": self.notifications.diagnostics() if self.notifications else {}}
 
     def shutdown(self) -> bool:
         if not self._thread:

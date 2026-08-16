@@ -62,6 +62,13 @@ def validate_message(message: ProtocolMessage, *, available_capabilities: set[st
             raise ProtocolValidationError("IDENTITY_MISMATCH", "Envelope source does not match node identity")
     elif message.type is MessageType.COMMAND_REQUEST:
         _validate_command_payload(message.payload)
+    elif message.type is MessageType.CHAT_REQUEST:
+        if set(message.payload) != {"text", "session_id", "input_source"} or not isinstance(message.payload["text"], str) or not 1 <= len(message.payload["text"]) <= 4000:
+            raise ProtocolValidationError("INVALID_CHAT", "Chat request is invalid")
+        if message.payload["session_id"] is not None and not isinstance(message.payload["session_id"], str):
+            raise ProtocolValidationError("INVALID_CHAT", "Session id is invalid")
+        if message.payload["input_source"] not in {"text", "voice"}:
+            raise ProtocolValidationError("INVALID_CHAT", "Input source is invalid")
     elif message.type is MessageType.HEARTBEAT:
         if set(message.payload) - {"status", "sequence"}:
             raise ProtocolValidationError("INVALID_HEARTBEAT", "Heartbeat contains unknown fields")
@@ -84,6 +91,22 @@ def validate_message(message: ProtocolMessage, *, available_capabilities: set[st
         required = {"request_id", "success", "status", "message", "data", "error"}
         if set(message.payload) != required or not isinstance(message.payload["success"], bool) or not isinstance(message.payload["data"], dict):
             raise ProtocolValidationError("INVALID_COMMAND_RESULT", "Command result payload is invalid")
+    elif message.type is MessageType.CHAT_RESULT:
+        if set(message.payload) != {"request_id", "session_id", "message", "status", "confirmation"} or not isinstance(message.payload["message"], str):
+            raise ProtocolValidationError("INVALID_CHAT_RESULT", "Chat result is invalid")
+    elif message.type is MessageType.NOTIFICATION:
+        required = {"id", "type", "title", "message", "source", "timestamp", "priority", "actions", "expires_at"}
+        if set(message.payload) != required or message.payload["type"] not in {"INFO", "SUCCESS", "WARNING", "ERROR", "ACTION_REQUIRED", "REMINDER"} or not isinstance(message.payload["actions"], list):
+            raise ProtocolValidationError("INVALID_NOTIFICATION", "Notification payload is invalid")
+    elif message.type is MessageType.NOTIFICATION_ACK:
+        if set(message.payload) != {"notification_id"}:
+            raise ProtocolValidationError("INVALID_NOTIFICATION_ACK", "Notification acknowledgement is invalid")
+    elif message.type is MessageType.NOTIFICATION_ACTION:
+        if set(message.payload) != {"notification_id", "action"} or message.payload["action"] not in {"Confirmar", "Cancelar", "Abrir", "Dispensar"}:
+            raise ProtocolValidationError("INVALID_NOTIFICATION_ACTION", "Notification action is invalid")
+    elif message.type is MessageType.SESSION_HANDOFF:
+        if set(message.payload) != {"session_id", "target_node"}:
+            raise ProtocolValidationError("INVALID_HANDOFF", "Session handoff is invalid")
 
 
 def dispatch_command(message: ProtocolMessage, *, authenticated: bool, registry, source_request_id: str | None = None, source_node: str | None = None) -> SkillResult:

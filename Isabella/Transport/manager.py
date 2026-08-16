@@ -43,25 +43,27 @@ def load_transport_config(path: Path | None = None) -> dict[str, Any]:
 
 
 class TransportManager:
-    def __init__(self, config: dict[str, Any], *, node_manager, registry, event_bus=None, device_security=None) -> None:
+    def __init__(self, config: dict[str, Any], *, node_manager, registry, event_bus=None, device_security=None, brain=None, sessions=None, notifications=None) -> None:
         self.config = config
         ws = config["websocket"]
         self.enabled = bool(ws["enabled"])
         token_path = Path(ws["token_file"])
         authentication = TokenAuthentication(token_path if token_path.is_absolute() else PROJECT_ROOT / token_path, required=True)
         limiter = RateLimiter(int(ws["rate_limit"]), float(ws["rate_window_seconds"]))
-        self.server = WebSocketNodeServer(ws, node_manager=node_manager, registry=registry, authentication=authentication, rate_limiter=limiter, event_bus=event_bus, device_security=device_security)
+        self.server = WebSocketNodeServer(ws, node_manager=node_manager, registry=registry, authentication=authentication, rate_limiter=limiter, event_bus=event_bus, device_security=device_security, brain=brain, sessions=sessions, notifications=notifications)
         self.event_bus = event_bus
         self._subscribed = False
 
     @classmethod
-    def from_config(cls, *, node_manager, registry, event_bus=None, device_security=None, path: Path | None = None) -> "TransportManager":
-        return cls(load_transport_config(path), node_manager=node_manager, registry=registry, event_bus=event_bus, device_security=device_security)
+    def from_config(cls, *, node_manager, registry, event_bus=None, device_security=None, brain=None, sessions=None, notifications=None, path: Path | None = None) -> "TransportManager":
+        return cls(load_transport_config(path), node_manager=node_manager, registry=registry, event_bus=event_bus, device_security=device_security, brain=brain, sessions=sessions, notifications=notifications)
 
     def start(self) -> bool:
         if not self.enabled:
             return True
         started = self.server.start()
+        if started and self.server.notifications:
+            self.server.notifications.bind_sender(self.server.send_notification)
         if started and self.event_bus and self.server.authorized_events:
             for event_name in self.server.authorized_events:
                 self.event_bus.subscribe(event_name, self.server.broadcast_event)

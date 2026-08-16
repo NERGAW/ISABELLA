@@ -31,7 +31,7 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None, scheduler=None, api=None, nodes=None, transport=None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None, scheduler=None, api=None, nodes=None, transport=None, sessions=None, notifications=None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.event_bus = event_bus
@@ -45,6 +45,8 @@ class Brain:
         self.api = api
         self.nodes = nodes
         self.transport = transport
+        self.sessions = sessions
+        self.notifications = notifications
         self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory

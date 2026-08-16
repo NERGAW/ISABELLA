@@ -18,7 +18,7 @@ from .models import ConfirmationRequest, PolicyDecision, PolicyResult, utc_now
 
 LOGGER = logging.getLogger("SECURITY")
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "security.json"
-TRUSTED_CONFIRMATION_SOURCES = frozenset({"hud", "voice", "cli", "user_input"})
+TRUSTED_CONFIRMATION_SOURCES = frozenset({"hud", "voice", "cli", "user_input", "trusted_node"})
 RISK_LEVELS = frozenset({"SAFE", "CAUTION", "CRITICAL"})
 
 

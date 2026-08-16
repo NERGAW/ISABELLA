@@ -23,6 +23,12 @@ class MessageType(str, Enum):
     CAPABILITIES = "CAPABILITIES"
     COMMAND_REQUEST = "COMMAND_REQUEST"
     COMMAND_RESULT = "COMMAND_RESULT"
+    CHAT_REQUEST = "CHAT_REQUEST"
+    CHAT_RESULT = "CHAT_RESULT"
+    NOTIFICATION = "NOTIFICATION"
+    NOTIFICATION_ACK = "NOTIFICATION_ACK"
+    NOTIFICATION_ACTION = "NOTIFICATION_ACTION"
+    SESSION_HANDOFF = "SESSION_HANDOFF"
     EVENT = "EVENT"
     TELEMETRY = "TELEMETRY"
     ERROR = "ERROR"
@@ -83,4 +89,3 @@ class ProtocolError:
 
     def to_dict(self) -> dict[str, Any]:
         return {"code": self.code, "message": self.message, "request_id": self.request_id, "details": self.details}
-

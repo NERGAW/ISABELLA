@@ -203,6 +203,8 @@ class ApplicationRuntime(IsabellaRuntime):
         self.nodes = None
         self.transport = None
         self.device_security = None
+        self.sessions = None
+        self.notifications = None
         self._register_application_services()
 
     @classmethod
@@ -451,6 +453,14 @@ class ApplicationRuntime(IsabellaRuntime):
         from Isabella.Security.Devices import DevicePairingManager
         from Isabella.Skills import create_node_security_skills
         self.device_security = DevicePairingManager.from_config(event_bus=self.event_bus)
+        from Isabella.Sessions import SessionManager
+        from Isabella.Notifications import NotificationManager
+        self.sessions = SessionManager(context=self.brain.context, event_bus=self.event_bus)
+        self.notifications = NotificationManager(event_bus=self.event_bus)
+        self.notifications.bind_action_handler(self._notification_action)
+        self.notifications.subscribe_sources(self.sessions)
+        self.brain.sessions = self.sessions
+        self.brain.notifications = self.notifications
         self.nodes = NodeManager.from_config(app=self.app, brain=self.brain, controller=self.controller, context=self.brain.context, event_bus=self.event_bus, device_security=self.device_security)
         self.brain.nodes = self.nodes
         started = self.nodes.start()
@@ -467,6 +477,10 @@ class ApplicationRuntime(IsabellaRuntime):
             self.brain.nodes = None
         self.nodes = None
         self.device_security = None
+        if self.notifications:
+            self.notifications.shutdown()
+        self.sessions = None
+        self.notifications = None
         return stopped
 
     def _health_nodes(self):
@@ -477,9 +491,20 @@ class ApplicationRuntime(IsabellaRuntime):
 
     def _start_transport(self):
         from Isabella.Transport import TransportManager
-        self.transport = TransportManager.from_config(node_manager=self.nodes, registry=self.brain.registry, event_bus=self.event_bus, device_security=self.device_security)
+        self.transport = TransportManager.from_config(node_manager=self.nodes, registry=self.brain.registry, event_bus=self.event_bus, device_security=self.device_security, brain=self.brain, sessions=self.sessions, notifications=self.notifications)
         self.brain.transport = self.transport
         return self.transport.start()
+
+    def _notification_action(self, notification, node_id, action):
+        confirmation_id = notification.metadata.get("confirmation_id")
+        if action == "Cancelar":
+            return self.brain.cancel_confirmation(confirmation_id) if confirmation_id else True
+        if action == "Confirmar" and confirmation_id:
+            request = self.brain.pending_confirmation(confirmation_id)
+            if request is None or request.expired:
+                raise PermissionError("Confirmation is expired")
+            return self.brain.confirm(request, source="trusted_node")
+        return True
 
     def _stop_transport(self):
         if not self.transport:
