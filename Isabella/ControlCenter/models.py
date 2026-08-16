@@ -22,4 +22,5 @@ class ControlCenterSnapshot:
     available_modes: tuple[str, ...] = ()
     agents: list[dict[str, Any]] = field(default_factory=list)
     knowledge: list[dict[str, Any]] = field(default_factory=list)
+    digital_twins: list[dict[str, Any]] = field(default_factory=list)
     generated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

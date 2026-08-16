@@ -78,3 +78,6 @@ class ContextSnapshot:
     active_nodes: tuple[str, ...] = ()
     primary_node: str | None = None
     available_capabilities: tuple[str, ...] = ()
+    twin_devices_online: tuple[str, ...] = ()
+    twin_capabilities: tuple[str, ...] = ()
+    twin_status: dict[str, str] = field(default_factory=dict)

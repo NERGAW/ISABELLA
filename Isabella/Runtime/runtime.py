@@ -224,6 +224,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.register(Service("Modes", ("Context", "Security"), start_hook=lambda: bool(self.brain and self.brain.modes), health_hook=lambda: bool(self.brain and self.brain.modes)))
         self.register(Service("Agents", ("Modes", "Skills", "Security"), start_hook=lambda: bool(self.brain and self.brain.orchestrator), health_hook=lambda: bool(self.brain and self.brain.orchestrator)))
         self.register(Service("Knowledge", ("Memory", "Context", "Skills"), start_hook=lambda: bool(self.brain and self.brain.knowledge), health_hook=lambda: bool(self.brain and self.brain.knowledge and self.brain.knowledge.storage.health_check())))
+        self.register(Service("Digital Twin", ("Knowledge", "Context", "Event Bus"), start_hook=lambda: bool(self.brain and self.brain.digital_twin.start()), stop_hook=lambda: self.brain.digital_twin.shutdown() if self.brain and self.brain.digital_twin else True, health_hook=lambda: bool(self.brain and self.brain.digital_twin)))
         self.register(Service("Skills", ("Security",), start_hook=lambda: bool(self.brain.registry), health_hook=lambda: bool(self.brain and self.brain.registry and self.brain.registry.list())))
         self.register(Service("Skill Forge", ("Skills", "Security"), start_hook=self._start_skillforge, stop_hook=self._stop_skillforge, health_hook=self._health_skillforge))
         self.register(Service("Automations", ("Skills", "Security", "Event Bus"), start_hook=self._start_automations, stop_hook=self._stop_automations, health_hook=self._health_automations))
@@ -567,6 +568,8 @@ class ApplicationRuntime(IsabellaRuntime):
         self.home = HomeManager.from_config(event_bus=self.event_bus, context=self.brain.context, controller=self.controller)
         self.brain.home = self.home
         self.nodes.register_local_home_gateway(self.home.config["gateway_node_id"])
+        if self.brain.digital_twin:
+            self.brain.digital_twin.sync_home(self.home)
         for definition in create_home_skills(self.home):
             if self.brain.registry.get(definition.id) is None:
                 self.brain.registry.register(definition)

@@ -77,7 +77,11 @@ class DiagnosticsManager:
         metrics = self._system_metrics()
         summary = self._summary(statuses)
         self.check_latencies_ms.append((perf_counter() - started) * 1000)
-        return DiagnosticsReport(statuses, metrics, summary, detailed)
+        report = DiagnosticsReport(statuses, metrics, summary, detailed)
+        twin = getattr(self.brain, "digital_twin", None)
+        if twin:
+            twin.consume_diagnostics(report)
+        return report
 
     def _check_subsystem(self, subsystem: Subsystem, expensive: bool):
         brain, app, controller = self.brain, self.app, self.controller
@@ -240,6 +244,10 @@ class DiagnosticsManager:
                 if graph is None: return HealthStatus.UNKNOWN, {"bound": False}
                 details = graph.diagnostics()
                 return (HealthStatus.ONLINE if details["database_accessible"] else HealthStatus.ERROR), details
+            if subsystem is Subsystem.DIGITAL_TWIN:
+                twin = getattr(brain, "digital_twin", None)
+                if twin is None: return HealthStatus.UNKNOWN, {"bound": False}
+                return HealthStatus.ONLINE, twin.diagnostics()
             return HealthStatus.UNKNOWN, {}
 
         result = health(subsystem, probe)

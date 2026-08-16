@@ -108,6 +108,7 @@ class ControlCenterController(QObject):
                 available_modes=tuple(mode.id for mode in self.brain.modes.list_modes()) if getattr(self.brain, "modes", None) else (),
                 agents=list(getattr(getattr(self.brain, "orchestrator", None), "diagnostics", lambda: {"recent_activity": []})().get("recent_activity", [])),
                 knowledge=[_public(item) for item in getattr(getattr(self.brain, "knowledge", None), "search_relations", lambda *_: [])("")],
+                digital_twins=[_public(item) for item in getattr(getattr(self.brain, "digital_twin", None), "list", lambda: [])()],
             )
             self.snapshot_ready.emit(snapshot)
             return snapshot

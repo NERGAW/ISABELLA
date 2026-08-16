@@ -35,6 +35,7 @@ class ControlCenterWindow(QMainWindow):
         self.events = TablePanel(); self.tabs.addTab(self.events, "Event Bus")
         self.agents = TablePanel(); self.tabs.addTab(self.agents, "Agents")
         self.knowledge = TablePanel(); self.tabs.addTab(self.knowledge, "Knowledge")
+        self.digital_twins = TablePanel(); self.tabs.addTab(self.digital_twins, "Digital Twin")
         self.automations = TablePanel(); self.tabs.addTab(self._automation_tab(), "Automations")
         self.scheduler = TablePanel(); self.tabs.addTab(self._scheduler_tab(), "Scheduler")
         self.nodes = TablePanel(); self.tabs.addTab(self.nodes, "Nodes")
@@ -103,6 +104,7 @@ class ControlCenterWindow(QMainWindow):
         self.events.update_rows(snapshot.events); self.automations.update_rows(snapshot.automations)
         self.agents.update_rows(snapshot.agents)
         self.knowledge.update_rows(snapshot.knowledge)
+        self.digital_twins.update_rows(snapshot.digital_twins)
         self.scheduler.update_rows(snapshot.scheduler); self.nodes.update_rows(snapshot.nodes)
         self.home.update_rows([snapshot.home])
 

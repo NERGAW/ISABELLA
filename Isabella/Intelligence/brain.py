@@ -32,7 +32,7 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None, scheduler=None, api=None, nodes=None, transport=None, sessions=None, notifications=None, home=None, modes=None, orchestrator=None, knowledge=None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None, scheduler=None, api=None, nodes=None, transport=None, sessions=None, notifications=None, home=None, modes=None, orchestrator=None, knowledge=None, digital_twin=None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.event_bus = event_bus
@@ -52,6 +52,7 @@ class Brain:
         self.modes = modes
         self.orchestrator = orchestrator
         self.knowledge = knowledge
+        self.digital_twin = digital_twin
         self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory
@@ -92,6 +93,8 @@ class Brain:
         brain.knowledge = KnowledgeGraph.from_config(event_bus=event_bus)
         brain.knowledge.seed(registry.list())
         memory.knowledge = brain.knowledge
+        from Isabella.DigitalTwin import DigitalTwinManager
+        brain.digital_twin = DigitalTwinManager.from_config(event_bus=event_bus, context=context, knowledge=brain.knowledge)
         from Isabella.MCP import MCPManager
         brain.mcp = MCPManager.from_config(skill_registry=registry, event_bus=event_bus)
         from Isabella.Research import ResearchManager
@@ -203,6 +206,10 @@ class Brain:
             self.context.set("last_user_command", text)
         if self.knowledge and relationship_question(text):
             result = BrainResponse(Intent.CONVERSATION, self.knowledge.answer(text))
+            self._finalize_conversation(text, result.message)
+            return result
+        if self.digital_twin and any(phrase in text.casefold() for phrase in ("dispositivos estão online","dispositivos estao online","como está o celular","como esta o celular","estado do sistema da casa","estado da casa")):
+            result = BrainResponse(Intent.CONVERSATION, self.digital_twin.answer(text))
             self._finalize_conversation(text, result.message)
             return result
         schedule_response = self._handle_schedule_command(text, request_id)
@@ -546,6 +553,8 @@ class Brain:
             self.memory.close()
         if self.knowledge:
             self.knowledge.close()
+        if self.digital_twin:
+            self.digital_twin.shutdown()
         close = getattr(self.llm, "close", None)
         if close:
             close()

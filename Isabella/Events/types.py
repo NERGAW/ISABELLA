@@ -122,3 +122,7 @@ class EventType(str, Enum):
     KNOWLEDGE_ENTITY_CREATED = "knowledge.entity_created"
     KNOWLEDGE_RELATION_CREATED = "knowledge.relation_created"
     KNOWLEDGE_RELATION_REMOVED = "knowledge.relation_removed"
+    TWIN_CREATED = "twin.created"
+    TWIN_UPDATED = "twin.updated"
+    TWIN_STALE = "twin.stale"
+    TWIN_OFFLINE = "twin.offline"
