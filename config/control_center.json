@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "refresh_interval_ms": 1500,
+  "event_history_limit": 200,
+  "log_tail_lines": 300,
+  "read_only_default": true
+}

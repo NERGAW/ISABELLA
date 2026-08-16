@@ -206,6 +206,8 @@ class ApplicationRuntime(IsabellaRuntime):
         self.sessions = None
         self.notifications = None
         self.home = None
+        self.control_center = None
+        self.control_center_controller = None
         self._register_application_services()
 
     @classmethod
@@ -398,12 +400,17 @@ class ApplicationRuntime(IsabellaRuntime):
         self.qt_app = self.qt_app or QApplication.instance() or QApplication([])
         self.controller = InterfaceController(self.app, self.brain)
         self.controller.managed_by_runtime = True
+        self.controller.control_center_requested.connect(self.open_control_center)
         self.window = IsabellaHUD(self.controller)
         self.window.show()
         self.controller.start_services(start_backends=False, run_health_check=False)
         return True
 
     def _stop_hud(self):
+        if self.control_center:
+            self.control_center.close()
+        self.control_center = None
+        self.control_center_controller = None
         if self.controller:
             self.controller.shutdown()
         if self.window:
@@ -411,6 +418,24 @@ class ApplicationRuntime(IsabellaRuntime):
         self.controller = None
         self.window = None
         return True
+
+    def open_control_center(self):
+        """Open one isolated engineering window without affecting the HUD lifecycle."""
+        if self.mode != "gui" or not self.brain:
+            return False
+        if self.control_center:
+            self.control_center.show(); self.control_center.raise_(); self.control_center.activateWindow()
+            return True
+        from Isabella.ControlCenter import ControlCenterController, ControlCenterWindow
+        self.control_center_controller = ControlCenterController(self)
+        self.control_center = ControlCenterWindow(self.control_center_controller)
+        self.control_center.destroyed.connect(self._control_center_destroyed)
+        self.control_center.show()
+        return True
+
+    def _control_center_destroyed(self):
+        self.control_center = None
+        self.control_center_controller = None
 
     def _health_hud(self):
         return bool(self.window and self.window.isVisible())

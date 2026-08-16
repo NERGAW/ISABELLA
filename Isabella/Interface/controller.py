@@ -22,6 +22,7 @@ class InterfaceController(QObject):
     tts_speaking_received = Signal(bool)
     context_changed = Signal(object)
     diagnostics_received = Signal(object)
+    control_center_requested = Signal()
 
     def __init__(self, app, brain, message_limit: int = 100) -> None:
         super().__init__()
@@ -118,6 +119,11 @@ class InterfaceController(QObject):
         if not cleaned:
             return
         normalized = cleaned.casefold().strip(" .!?")
+        if normalized in {"isabella, abra o control center", "isabella abra o control center", "abra o control center", "control center"}:
+            self.add_message(MessageRole.USER, cleaned)
+            self.control_center_requested.emit()
+            self.add_message(MessageRole.ISABELLA, "Abrindo o Control Center.", MessageType.ACTION)
+            return
         if from_voice and self._pending_confirmation:
             if normalized in {"sim", "confirmo", "pode confirmar", "pode executar"}:
                 request = self._pending_confirmation

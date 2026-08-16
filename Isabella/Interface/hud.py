@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QCloseEvent, QKeyEvent
+from PySide6.QtGui import QAction, QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
@@ -65,6 +65,10 @@ class IsabellaHUD(QMainWindow):
         self.setMinimumSize(820, 560)
         self.resize(1120, 720)
         self.setStyleSheet(STYLE)
+        tools_menu = self.menuBar().addMenu("Ferramentas")
+        control_center_action = QAction("Control Center", self)
+        control_center_action.triggered.connect(self.controller.control_center_requested.emit)
+        tools_menu.addAction(control_center_action)
         root, layout = QWidget(), QVBoxLayout()
         root.setLayout(layout)
         layout.setContentsMargins(16, 16, 16, 16)
