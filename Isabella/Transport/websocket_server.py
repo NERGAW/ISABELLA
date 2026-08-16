@@ -136,7 +136,9 @@ class WebSocketNodeServer:
                 return
             if connection.pairing_id:
                 payload = dict(welcome.payload)
-                payload["pairing"] = {"pairing_id": connection.pairing_id, "status": "PAIRING"}
+                request = self.device_security.get_pairing_request(connection.pairing_id)
+                payload["pairing"] = {"pairing_id": connection.pairing_id, "status": "PAIRING",
+                                      "display_code": request.display_code if request else ""}
                 welcome = ProtocolMessage(welcome.type, welcome.source, welcome.destination, payload,
                                           welcome.id, welcome.protocol_version, welcome.timestamp, welcome.correlation_id)
                 await self._send(websocket, connection, welcome)

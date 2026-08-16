@@ -87,6 +87,10 @@ class DevicePairingManager:
         request.state = PairingState.PENDING_APPROVAL
         return True
 
+    def get_pairing_request(self, pairing_id: str) -> PairingRequest | None:
+        request = self._pending.get(pairing_id)
+        return request if request and not request.used and not request.expired else None
+
     def approve(self, pairing_id: str, permissions: tuple[str, ...] | None = None) -> DeviceRecord:
         request = self._pending.get(pairing_id)
         if not request or request.used or request.expired or request.state is not PairingState.PENDING_APPROVAL:
