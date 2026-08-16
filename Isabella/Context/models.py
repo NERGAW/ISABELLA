@@ -74,3 +74,6 @@ class ContextSnapshot:
     last_detected_error: str | None = None
     last_visible_application: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    active_nodes: tuple[str, ...] = ()
+    primary_node: str | None = None
+    available_capabilities: tuple[str, ...] = ()

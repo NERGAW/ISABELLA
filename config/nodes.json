@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "identity_file": "data/node_identity.json",
+  "registry_file": "data/nodes_registry.json",
+  "offline_after_seconds": 30,
+  "known_capabilities": [
+    "text_input",
+    "voice_input",
+    "voice_output",
+    "screen_capture",
+    "camera_capture",
+    "local_llm",
+    "skill_execution",
+    "hud",
+    "memory",
+    "research",
+    "notifications",
+    "sensors",
+    "display",
+    "gps",
+    "imu"
+  ]
+}

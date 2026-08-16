@@ -21,6 +21,7 @@
     "Diagnostics",
     "HUD",
     "Voice Input",
-    "Voice Output"
+    "Voice Output",
+    "Nodes"
   ]
 }

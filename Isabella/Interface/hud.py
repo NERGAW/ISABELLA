@@ -177,7 +177,7 @@ class IsabellaHUD(QMainWindow):
         label = self._statuses.get(name)
         if label:
             label.setText(status)
-            kind = "ok" if status in {"ONLINE", "READY"} else "busy" if status in {"LOADING", "BUSY", "DEGRADED"} else "error"
+            kind = "ok" if status in {"ONLINE", "READY"} or status.endswith(" ONLINE") else "busy" if status in {"LOADING", "BUSY", "DEGRADED"} else "error"
             self._repolish(label, kind)
 
     def set_busy(self, busy: bool) -> None:

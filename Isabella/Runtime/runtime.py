@@ -200,6 +200,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.controller = None
         self.window = None
         self.api = None
+        self.nodes = None
         self._register_application_services()
 
     @classmethod
@@ -229,6 +230,7 @@ class ApplicationRuntime(IsabellaRuntime):
             voice_dependencies = ("Core", "Intelligence")
         self.register(Service("Voice Input", voice_dependencies, start_hook=self._start_voice, stop_hook=self._stop_voice, health_hook=self._health_voice))
         self.register(Service("Voice Output", ("Core",), start_hook=self._start_tts, stop_hook=self._stop_tts, health_hook=self._health_tts))
+        self.register(Service("Nodes", ("Core", "Intelligence", "Context", "Vision"), start_hook=self._start_nodes, stop_hook=self._stop_nodes, health_hook=self._health_nodes))
 
     def _start_core(self):
         from Isabella.Core.app import IsabellaApp
@@ -440,6 +442,27 @@ class ApplicationRuntime(IsabellaRuntime):
     def _health_tts(self):
         tts = getattr(self.app, "tts_manager", None)
         return bool(tts and tts.health_check())
+
+    def _start_nodes(self):
+        from Isabella.Nodes import NodeManager
+        self.nodes = NodeManager.from_config(app=self.app, brain=self.brain, controller=self.controller, context=self.brain.context, event_bus=self.event_bus)
+        self.brain.nodes = self.nodes
+        return self.nodes.start()
+
+    def _stop_nodes(self):
+        if not self.nodes:
+            return True
+        stopped = self.nodes.shutdown()
+        if self.brain:
+            self.brain.nodes = None
+        self.nodes = None
+        return stopped
+
+    def _health_nodes(self):
+        if not self.nodes:
+            return ServiceState.ERROR
+        details = self.nodes.diagnostics()
+        return ServiceState.ONLINE if details["online"] >= 1 else ServiceState.DEGRADED
 
     def start(self) -> bool:
         success = super().start()

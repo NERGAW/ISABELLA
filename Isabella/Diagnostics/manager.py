@@ -207,6 +207,13 @@ class DiagnosticsManager:
                 details = api.health_check()
                 status = HealthStatus.ONLINE if details.get("status") == "ONLINE" else HealthStatus.DEGRADED if details.get("status") == "DISABLED" else HealthStatus.ERROR
                 return status, details
+            if subsystem is Subsystem.NODES:
+                nodes = getattr(brain, "nodes", None) or getattr(self.runtime, "nodes", None)
+                if nodes is None:
+                    return HealthStatus.UNKNOWN, {"enabled": False, "bound": False}
+                details = nodes.diagnostics()
+                status = HealthStatus.ONLINE if details.get("online", 0) >= 1 else HealthStatus.DEGRADED
+                return status, details
             return HealthStatus.UNKNOWN, {}
 
         result = health(subsystem, probe)

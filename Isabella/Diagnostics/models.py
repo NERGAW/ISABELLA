@@ -38,6 +38,7 @@ class Subsystem(str, Enum):
     AUTOMATIONS = "AUTOMATIONS"
     SCHEDULER = "SCHEDULER"
     API = "API"
+    NODES = "NODES"
 
 
 @dataclass(frozen=True)
