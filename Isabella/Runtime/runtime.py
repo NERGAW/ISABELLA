@@ -205,6 +205,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.device_security = None
         self.sessions = None
         self.notifications = None
+        self.home = None
         self._register_application_services()
 
     @classmethod
@@ -236,6 +237,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.register(Service("Voice Output", ("Core",), start_hook=self._start_tts, stop_hook=self._stop_tts, health_hook=self._health_tts))
         self.register(Service("Nodes", ("Core", "Intelligence", "Context", "Vision"), start_hook=self._start_nodes, stop_hook=self._stop_nodes, health_hook=self._health_nodes))
         self.register(Service("Transport", ("Nodes", "Skills", "Security", "Event Bus"), start_hook=self._start_transport, stop_hook=self._stop_transport, health_hook=self._health_transport))
+        self.register(Service("Home", ("Nodes", "Skills", "Security", "Event Bus", "Context"), start_hook=self._start_home, stop_hook=self._stop_home, health_hook=self._health_home))
 
     def _start_core(self):
         from Isabella.Core.app import IsabellaApp
@@ -520,6 +522,32 @@ class ApplicationRuntime(IsabellaRuntime):
             return ServiceState.ERROR
         status = self.transport.diagnostics()["status"]
         return ServiceState.ONLINE if status == "ONLINE" else ServiceState.DEGRADED if not self.transport.enabled else ServiceState.ERROR
+
+    def _start_home(self):
+        from Isabella.Home import HomeManager
+        from Isabella.Skills import create_home_skills
+        self.home = HomeManager.from_config(event_bus=self.event_bus, context=self.brain.context, controller=self.controller)
+        self.brain.home = self.home
+        self.nodes.register_local_home_gateway(self.home.config["gateway_node_id"])
+        for definition in create_home_skills(self.home):
+            if self.brain.registry.get(definition.id) is None:
+                self.brain.registry.register(definition)
+        return self.home.start()
+
+    def _stop_home(self):
+        if not self.home: return True
+        stopped = self.home.shutdown()
+        gateway_id = self.home.config["gateway_node_id"]
+        if self.nodes and self.nodes.get(gateway_id): self.nodes.unregister(gateway_id)
+        if self.brain: self.brain.home = None
+        self.home = None
+        return stopped
+
+    def _health_home(self):
+        if not self.home: return ServiceState.ERROR
+        details = self.home.health_check()
+        if details["gateway"] != "ONLINE": return ServiceState.ERROR
+        return ServiceState.DEGRADED if details["broker"] == "OFFLINE" else ServiceState.ONLINE
 
     def start(self) -> bool:
         success = super().start()

@@ -156,6 +156,13 @@ def test_registry_persists_known_nodes_and_diagnostics(tmp_path):
     assert {item.node_id for item in restored.list()} == {nodes.primary_node_id, "mobile.test"}
 
 
+def test_local_home_gateway_is_a_trusted_home_node(tmp_path):
+    nodes = manager(tmp_path); nodes.start()
+    gateway = nodes.register_local_home_gateway()
+    assert gateway.node_type is NodeType.HOME and gateway.trust is TrustState.TRUSTED
+    assert gateway.metadata["local_gateway"] is True
+
+
 def test_simulator_cli_has_no_access_grant():
     result = subprocess.run([sys.executable, "tools/simulate_node.py", "--type", "MOBILE"], capture_output=True, text=True, timeout=10, check=True)
     assert "TYPE=MOBILE" in result.stdout

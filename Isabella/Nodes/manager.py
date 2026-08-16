@@ -87,6 +87,19 @@ class NodeManager:
         self._sync_hud()
         return node
 
+    def register_local_home_gateway(self, node_id: str = "home.gateway") -> Node:
+        existing = self.get(node_id)
+        if existing:
+            if existing.node_type is not NodeType.HOME or not existing.metadata.get("local_gateway"):
+                raise ValueError("Home gateway identity conflicts with an existing Node")
+            return self.heartbeat(node_id)
+        node = Node(node_id, "ISABELLA Home Gateway", NodeType.HOME, NodeStatus.CONNECTING,
+                    capabilities=("sensors",), metadata={"local_gateway": True}, trust=TrustState.UNTRUSTED)
+        self.register(node)
+        node.trust = TrustState.TRUSTED
+        self.registry.save(node)
+        return node
+
     def unregister(self, node_id: str) -> Node | None:
         if node_id == self.primary_node_id:
             raise ValueError("Primary Node cannot be unregistered while running")

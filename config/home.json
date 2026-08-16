@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "gateway_node_id": "home.gateway",
+  "offline_after_seconds": 60,
+  "mqtt": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 1883,
+    "authentication_required": true,
+    "username_env": "ISABELLA_MQTT_USERNAME",
+    "password_env": "ISABELLA_MQTT_PASSWORD",
+    "tls": false
+  },
+  "devices": [
+    {"device_id": "virtual_light_1", "name": "Luz virtual de laboratório", "type": "VIRTUAL_LIGHT", "capabilities": ["light", "switch"], "risk_level": "CAUTION", "simulated": true},
+    {"device_id": "virtual_temperature_sensor", "name": "Sensor virtual de temperatura", "type": "VIRTUAL_SENSOR", "capabilities": ["temperature"], "risk_level": "SAFE", "simulated": true}
+  ]
+}

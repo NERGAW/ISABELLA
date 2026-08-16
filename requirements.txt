@@ -14,3 +14,4 @@ mcp>=2,<3
 tzdata
 websockets>=15,<17
 cryptography>=45,<51
+paho-mqtt>=2,<3

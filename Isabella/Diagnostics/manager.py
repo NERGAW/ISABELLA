@@ -221,6 +221,12 @@ class DiagnosticsManager:
                 details = transport.diagnostics()
                 status = HealthStatus.ONLINE if details.get("status") == "ONLINE" else HealthStatus.DEGRADED if not details.get("enabled") else HealthStatus.ERROR
                 return status, details
+            if subsystem is Subsystem.HOME:
+                home = getattr(brain, "home", None) or getattr(self.runtime, "home", None)
+                if home is None: return HealthStatus.UNKNOWN, {"enabled": False, "bound": False}
+                details = home.health_check()
+                status = HealthStatus.ERROR if details.get("gateway") != "ONLINE" else HealthStatus.DEGRADED if details.get("broker") == "OFFLINE" or details.get("telemetry_errors") else HealthStatus.ONLINE
+                return status, details
             return HealthStatus.UNKNOWN, {}
 
         result = health(subsystem, probe)

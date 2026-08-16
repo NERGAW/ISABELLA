@@ -40,6 +40,7 @@ class Subsystem(str, Enum):
     API = "API"
     NODES = "NODES"
     TRANSPORT = "TRANSPORT"
+    HOME = "HOME"
 
 
 @dataclass(frozen=True)
