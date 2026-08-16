@@ -263,6 +263,14 @@ class TTSManager:
         self._active_provider: TTSProvider | None = None
         self.state = "STOPPED"
         self.metrics: deque[dict[str, float | str]] = deque(maxlen=200)
+        self.local_only = False
+
+    def set_local_only(self, enabled: bool) -> None:
+        """Restrict synthesis to the offline SAPI provider without changing credentials."""
+        self.local_only = bool(enabled)
+
+    def _providers(self):
+        return (self.fallback,) if self.local_only else (self.primary, self.fallback)
 
     def initialize(self, timeout: float = 5.0) -> bool:
         if self._thread and self._thread.is_alive():
@@ -275,9 +283,7 @@ class TTSManager:
         return self.state != "ERROR"
 
     def _worker(self) -> None:
-        initialized = int(self._initialize_provider(self.primary))
-        if not initialized:
-            initialized = int(self._initialize_provider(self.fallback))
+        initialized = int(any(self._initialize_provider(provider) for provider in self._providers()))
         self.state = "READY" if initialized else "ERROR"
         self._ready_event.set()
         while not self._stop_event.is_set() or not self._queue.empty():
@@ -319,7 +325,7 @@ class TTSManager:
 
     def _speak_with_fallback(self, text: str) -> None:
         errors = 0
-        for provider in (self.primary, self.fallback):
+        for provider in self._providers():
             if provider is None or not self._initialize_provider(provider):
                 continue
             try:

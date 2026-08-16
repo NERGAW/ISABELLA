@@ -1,0 +1,13 @@
+{
+  "initial_mode": "NORMAL",
+  "suggest_engineering_for_vscode": false,
+  "modes": [
+    {"id":"NORMAL","name":"Normal","description":"Comportamento padrão.","enabled_skills":["*"],"disabled_skills":[],"interface_profile":"standard","voice_profile":"standard","research_allowed":true,"network_policy":"standard","diagnostics_level":"standard"},
+    {"id":"ENGINEERING","name":"Engenharia","description":"Desenvolvimento, logs e diagnóstico técnico.","enabled_skills":["*"],"disabled_skills":[],"interface_profile":"engineering","voice_profile":"technical","research_allowed":true,"network_policy":"standard","diagnostics_level":"detailed"},
+    {"id":"PRIVACY","name":"Privacidade","description":"Prioriza processamento local e minimização de dados.","enabled_skills":["*"],"disabled_skills":["mcp.*"],"interface_profile":"private","voice_profile":"local","research_allowed":false,"network_policy":"local_only","diagnostics_level":"minimal"},
+    {"id":"OFFLINE","name":"Offline","description":"Somente provedores e Skills locais.","enabled_skills":["*"],"disabled_skills":["mcp.*"],"interface_profile":"offline","voice_profile":"local","research_allowed":false,"network_policy":"local_only","diagnostics_level":"standard"},
+    {"id":"HOME","name":"Casa","description":"Prioriza Gateway, automações, agenda e dispositivos.","enabled_skills":["*"],"disabled_skills":[],"interface_profile":"home","voice_profile":"concise","research_allowed":true,"network_policy":"local_preferred","diagnostics_level":"standard"},
+    {"id":"MOBILE","name":"Móvel","description":"Respostas concisas para origem MOBILE_NODE.","enabled_skills":["*"],"disabled_skills":[],"interface_profile":"compact","voice_profile":"concise","research_allowed":true,"network_policy":"standard","diagnostics_level":"minimal"}
+  ],
+  "future_modes": ["HELMET", "EMERGENCY"]
+}

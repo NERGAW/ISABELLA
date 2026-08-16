@@ -10,7 +10,7 @@ from .llm import OllamaProvider, ProviderUnavailableError, load_intelligence_con
 from .models import BrainResponse, Intent, Plan, SkillRequest
 from .planner import Planner
 from .router import Router
-from Isabella.Skills import SkillRegistry, build_default_registry, create_automation_skills, create_diagnostics_skill, create_scheduler_skills
+from Isabella.Skills import SkillRegistry, build_default_registry, create_automation_skills, create_diagnostics_skill, create_scheduler_skills, create_mode_skill
 from Isabella.Skills.base import SkillResult
 from Isabella.Memory import MemoryManager, MemoryType
 from Isabella.Memory.manager import MemoryError, SecretMemoryError
@@ -31,7 +31,7 @@ PERFORMANCE = logging.getLogger("PERFORMANCE")
 
 
 class Brain:
-    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None, scheduler=None, api=None, nodes=None, transport=None, sessions=None, notifications=None, home=None) -> None:
+    def __init__(self, llm: OllamaProvider, router: Router | None = None, planner: Planner | None = None, registry: SkillRegistry | None = None, memory: MemoryManager | None = None, context: ContextManager | None = None, vision: VisionManager | None = None, event_bus=None, security=None, diagnostics=None, mcp=None, research=None, skillforge=None, automations=None, scheduler=None, api=None, nodes=None, transport=None, sessions=None, notifications=None, home=None, modes=None) -> None:
         self.llm = llm
         self.router = router or Router()
         self.event_bus = event_bus
@@ -48,6 +48,7 @@ class Brain:
         self.sessions = sessions
         self.notifications = notifications
         self.home = home
+        self.modes = modes
         self.planner = planner or Planner(router=self.router, event_bus=event_bus)
         self.registry = registry
         self.memory = memory
@@ -79,6 +80,9 @@ class Brain:
             event_bus=event_bus,
             security=security,
         )
+        from Isabella.Modes import ModeManager
+        brain.modes = ModeManager.from_config(event_bus=event_bus, context=context)
+        registry.register(create_mode_skill(brain.modes))
         from Isabella.MCP import MCPManager
         brain.mcp = MCPManager.from_config(skill_registry=registry, event_bus=event_bus)
         from Isabella.Research import ResearchManager
@@ -164,8 +168,13 @@ class Brain:
         contextual_request = contextual_request or vision_request
         router_started = perf_counter()
         intent = Intent.SINGLE_SKILL if contextual_request else (intent or self.router.route(text))
-        if intent == Intent.CONVERSATION and self.research and self.research.should_search(text):
+        mode_policy = self.modes.apply_policy(input_source=input_source) if self.modes else None
+        if intent == Intent.CONVERSATION and self.research and (not mode_policy or mode_policy.research_allowed) and self.research.should_search(text):
             intent = Intent.RESEARCH
+        if intent == Intent.RESEARCH and mode_policy and not mode_policy.research_allowed:
+            result = BrainResponse(Intent.CONVERSATION, f"Pesquisa externa está desabilitada no modo {mode_policy.mode_id}.")
+            self._finalize_conversation(text, result.message)
+            return result
         router_ms = router_ms if router_ms is not None else (perf_counter() - router_started) * 1000
         llm_ms = planner_ms = skill_ms = research_ms = 0.0
         if intent == Intent.CONVERSATION:
@@ -326,6 +335,9 @@ class Brain:
         )
         if not asks_about_screen:
             return None, None
+        policy = self.modes.apply_policy() if self.modes else None
+        if policy and policy.network_policy == "local_only" and not bool(getattr(self.vision, "config", {}).get("provider_local", False)):
+            return None, BrainResponse(Intent.VISION, f"Vision cloud está desabilitada no modo {policy.mode_id}.")
         if not self.vision:
             return None, BrainResponse(Intent.VISION, "Vision está indisponível no momento.")
         follow_up = any(reference in normalized for reference in ("esse erro", "essa mensagem", "isso"))
@@ -351,6 +363,9 @@ class Brain:
             self.context.record_result(result.success, result.message, result.data, result.status)
 
     def _execute_skill(self, skill_id: str, arguments: dict, source_request_id: str) -> SkillResult:
+        policy = self.modes.apply_policy() if self.modes else None
+        if policy and not policy.allows_skill(skill_id):
+            return SkillResult(False, skill_id, f"A Skill está desabilitada no modo {policy.mode_id}.", error_code="MODE_POLICY_DENIED", status="denied")
         try:
             return self.registry.execute(
                 skill_id, arguments, source_request_id=source_request_id,

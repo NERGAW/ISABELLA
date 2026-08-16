@@ -18,4 +18,6 @@ class ControlCenterSnapshot:
     scheduler: list[dict[str, Any]] = field(default_factory=list)
     nodes: list[dict[str, Any]] = field(default_factory=list)
     home: dict[str, Any] = field(default_factory=dict)
+    current_mode: str = "NORMAL"
+    available_modes: tuple[str, ...] = ()
     generated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

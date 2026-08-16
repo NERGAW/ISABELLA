@@ -104,6 +104,8 @@ class ControlCenterController(QObject):
                 intelligence=intelligence, skills=skills, security=security, memory=memory,
                 events=list(self.recent_events), automations=automations, scheduler=scheduler,
                 nodes=nodes, home=home,
+                current_mode=self.brain.modes.get_current_mode().id if getattr(self.brain, "modes", None) else "NORMAL",
+                available_modes=tuple(mode.id for mode in self.brain.modes.list_modes()) if getattr(self.brain, "modes", None) else (),
             )
             self.snapshot_ready.emit(snapshot)
             return snapshot
@@ -136,6 +138,9 @@ class ControlCenterController(QObject):
             raise PermissionError("O Core não pode ser reiniciado pelo Control Center.")
         self._authorize("control_center.service_restart", {"service": name})
         return self.runtime.restart_service(name)
+
+    def set_mode(self, mode_id: str):
+        return self.brain.modes.set_mode(mode_id, source="control_center")
 
     def read_logs(self, module: str = "", level: str = "", search: str = "", max_lines: int = 300) -> list[str]:
         path = PROJECT_ROOT / "logs" / "isabella.log"

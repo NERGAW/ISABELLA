@@ -22,6 +22,9 @@ class ControlCenterWindow(QMainWindow):
         self.admin = QCheckBox("Modo administrativo")
         self.admin.toggled.connect(controller.set_administrative)
         top.addWidget(title); top.addStretch(); top.addWidget(self.admin)
+        self.mode_selector = QComboBox()
+        self.mode_selector.currentTextChanged.connect(self._set_mode)
+        top.addWidget(self.mode_selector)
         layout.addLayout(top)
         self.tabs = QTabWidget(); layout.addWidget(self.tabs); self.setCentralWidget(root)
         self.overview = OverviewPanel(); self.tabs.addTab(self.overview, "Visão geral")
@@ -83,8 +86,15 @@ class ControlCenterWindow(QMainWindow):
         item = self._selected(self.scheduler, "id")
         if item: self._guard(lambda: self.controller.cancel_task(item))
     def _restart(self): self._guard(lambda: self.controller.restart_service(self.services.currentText()))
+    def _set_mode(self, mode):
+        if mode and not self.mode_selector.signalsBlocked():
+            self._guard(lambda: self.controller.set_mode(mode))
 
     def update_snapshot(self, snapshot):
+        self.mode_selector.blockSignals(True)
+        if self.mode_selector.count() == 0: self.mode_selector.addItems(snapshot.available_modes)
+        self.mode_selector.setCurrentText(snapshot.current_mode)
+        self.mode_selector.blockSignals(False)
         self.overview.update_data(snapshot.overview, snapshot.metrics)
         self.intelligence.update_rows([snapshot.intelligence]); self.skills.update_rows(snapshot.skills)
         self.security.update_rows([snapshot.security]); self.memory.update_rows(snapshot.memory)

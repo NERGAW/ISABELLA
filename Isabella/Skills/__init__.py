@@ -11,6 +11,7 @@ from .automations import create_automation_skills
 from .scheduler import create_scheduler_skills
 from .nodes import create_node_security_skills
 from .home import create_home_skills
+from .modes import create_mode_skill
 
 
 def build_default_registry(vision_manager=None, event_bus=None, policy_engine=None) -> SkillRegistry:
@@ -41,4 +42,5 @@ __all__ = [
     "create_scheduler_skills",
     "create_node_security_skills",
     "create_home_skills",
+    "create_mode_skill",
 ]

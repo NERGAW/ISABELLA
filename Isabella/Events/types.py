@@ -112,3 +112,6 @@ class EventType(str, Enum):
     SERVICE_STOPPED = "service.stopped"
     RUNTIME_STOPPING = "runtime.stopping"
     RUNTIME_STOPPED = "runtime.stopped"
+    MODE_CHANGING = "mode.changing"
+    MODE_CHANGED = "mode.changed"
+    MODE_FAILED = "mode.failed"

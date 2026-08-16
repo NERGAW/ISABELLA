@@ -221,6 +221,7 @@ class ApplicationRuntime(IsabellaRuntime):
         self.register(Service("Security", ("Intelligence",), start_hook=lambda: bool(self.brain.security), health_hook=lambda: bool(self.brain and self.brain.security)))
         self.register(Service("Memory", ("Intelligence",), start_hook=lambda: bool(self.brain.memory), health_hook=self._health_memory))
         self.register(Service("Context", ("Memory",), start_hook=lambda: bool(self.brain.context), health_hook=self._health_context))
+        self.register(Service("Modes", ("Context", "Security"), start_hook=lambda: bool(self.brain and self.brain.modes), health_hook=lambda: bool(self.brain and self.brain.modes)))
         self.register(Service("Skills", ("Security",), start_hook=lambda: bool(self.brain.registry), health_hook=lambda: bool(self.brain and self.brain.registry and self.brain.registry.list())))
         self.register(Service("Skill Forge", ("Skills", "Security"), start_hook=self._start_skillforge, stop_hook=self._stop_skillforge, health_hook=self._health_skillforge))
         self.register(Service("Automations", ("Skills", "Security", "Event Bus"), start_hook=self._start_automations, stop_hook=self._stop_automations, health_hook=self._health_automations))
@@ -267,9 +268,13 @@ class ApplicationRuntime(IsabellaRuntime):
     def _start_intelligence(self):
         from Isabella.Intelligence.brain import Brain
         self.brain = Brain.from_config(event_bus=self.event_bus)
+        if self.event_bus:
+            self.event_bus.subscribe(EventType.MODE_CHANGED.value, self._on_mode_changed)
         return True
 
     def _stop_intelligence(self):
+        if self.event_bus:
+            self.event_bus.unsubscribe(EventType.MODE_CHANGED.value, self._on_mode_changed)
         if self.brain:
             self.brain.shutdown()
             self.brain = None
@@ -279,6 +284,12 @@ class ApplicationRuntime(IsabellaRuntime):
         if not self.brain:
             return False
         return ServiceState.ONLINE if self.brain.llm.health_check() else ServiceState.DEGRADED
+
+    def _on_mode_changed(self, event):
+        manager = getattr(self.app, "tts_manager", None)
+        mode = event.payload.get("to")
+        if manager and hasattr(manager, "set_local_only"):
+            manager.set_local_only(mode in {"PRIVACY", "OFFLINE"})
 
     def _health_memory(self):
         status = getattr(getattr(self.brain, "memory", None), "status", "OFFLINE")

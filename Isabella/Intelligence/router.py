@@ -13,6 +13,7 @@ LOGGER = logging.getLogger("ROUTER")
 ACTION_WORDS = (
     "abra", "abre", "abrir", "inicie", "iniciar", "entrar", "usar", "assistir",
     "feche", "fechar", "tire", "capture", "captura", "volume", "deslig", "reinici", "suspend", "diagnost",
+    "modo",
 )
 RESEARCH_PATTERNS = (
     r"\bpesquis\w*\b", r"\bbusque\b", r"\bprocure\b", r"\bconsulte\b",
@@ -66,6 +67,9 @@ class Router:
 
     def skill_request(self, text: str) -> SkillRequest:
         normalized = self.normalize_text(text)
+        mode_match = re.search(r"\bmodo\s+(normal|engenharia|engineering|privacidade|privacy|offline|casa|home|movel|mobile)\b", normalized)
+        if mode_match:
+            return SkillRequest("system.set_mode", {"mode": mode_match.group(1)})
         if "diagnost" in normalized:
             return SkillRequest("system.diagnostics", {"detailed": "detalhad" in normalized})
         if any(term in normalized for term in ("camera", "webcam")) and any(term in normalized for term in ("capture", "captura", "tire", "imagem", "foto")):

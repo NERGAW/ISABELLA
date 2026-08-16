@@ -59,6 +59,7 @@ class ContextSnapshot:
     active_application: str = "unavailable"
     active_window_title: str = "unavailable"
     current_project: str | None = None
+    current_mode: str = "NORMAL"
     last_user_command: str | None = None
     last_assistant_response: str | None = None
     last_skill: str | None = None

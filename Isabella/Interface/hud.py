@@ -83,6 +83,8 @@ class IsabellaHUD(QMainWindow):
         self.state_label = QLabel("IDLE")
         self._repolish(self.state_label, "ok")
         top_row.addWidget(self.state_label)
+        self.mode_label = QLabel("NORMAL", objectName="muted")
+        top_row.addWidget(self.mode_label)
         layout.addWidget(top)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -194,6 +196,7 @@ class IsabellaHUD(QMainWindow):
         application = snapshot.active_application if snapshot.active_application != "unavailable" else "—"
         self.active_app.setText(f"App ativo: {application}")
         self.current_project.setText(f"Projeto: {snapshot.current_project or '—'}")
+        self.mode_label.setText(f"Modo: {getattr(snapshot, 'current_mode', 'NORMAL')}")
 
     def confirm_action(self, request) -> None:
         labels = {

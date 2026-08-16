@@ -148,7 +148,8 @@ class ContextManager:
 
     def reset_session(self) -> ContextSnapshot:
         with self._lock:
-            self._snapshot = self._new_snapshot()
+            current_mode = self._snapshot.current_mode
+            self._snapshot = replace(self._new_snapshot(), current_mode=current_mode)
         self._apply_project_memory()
         return self.get_snapshot()
 
